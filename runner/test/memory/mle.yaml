@@ -1,0 +1,5 @@
+limit:
+  memory: 500000
+cases:
+- input: ''
+  answer: end

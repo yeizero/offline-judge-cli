@@ -1,0 +1,8 @@
+# This is a sample configuration file for the application debug.
+generator:
+  editor: vim
+  plugins:
+    - option: 從ZeroJudge讀取
+      command: [ .venv\Scripts\python.exe, plugins/zerojudge.py ]
+    - option: ls
+      command: [ ls ]
