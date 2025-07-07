@@ -6,13 +6,16 @@ mod reader;
 use std::process::{self, Command};
 
 use measure::{
-    compile, measure, print_test_info, print_test_label, CompileError, Limitation, PrettyNumber, SummaryInfo
+    CompileError, Limitation, PrettyNumber, SummaryInfo, evaluate, prepare_command,
+    print_test_info, print_test_label,
 };
 use prettytable::{
-    format::{FormatBuilder, LinePosition, LineSeparator},
     Cell, Row, Table,
+    format::{FormatBuilder, LinePosition, LineSeparator},
 };
-use reader::{resolve_args, FileType, TestInfo};
+use reader::{TestInfo, resolve_args};
+
+use crate::reader::{EvaluatorConfig, read_config};
 
 fn main() {
     let info = match resolve_args() {
@@ -22,8 +25,15 @@ fn main() {
             process::exit(1);
         }
     };
+    let config = match read_config() {
+        Ok(i) => i,
+        Err(e) => {
+            println!("❌ [SE] {}", e);
+            process::exit(1);
+        }
+    };
 
-    let Some(runner) = compile_source_code(&info) else {
+    let Some(runner) = compile_source_code(&info, &config) else {
         process::exit(1);
     };
 
@@ -36,35 +46,27 @@ fn main() {
     }
 }
 
-fn compile_source_code(info: &TestInfo) -> Option<Command> {
-    if !matches!(info.file_type, FileType::Python) {
+fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Option<Command> {
+    let profile = config.languages.iter().find(|lang| lang.extension == info.file_type);
+    let Some(profile) = profile else {
+        println!("❌ [SE] 未知原始碼副檔名 {} ，請選擇 config.yaml 中含有的類型", info.file_type);
+        return None;
+    };
+
+    if profile.compile.is_some() {
         println!("🔨 正在編譯檔案");
     }
 
-    let compile = match &info.file_type {
-        FileType::C => compile::resolve_c,
-        FileType::Cpp => compile::resolve_cpp,
-        FileType::Java => compile::resolve_java,
-        FileType::Python => compile::resolve_python,
-        FileType::Rust => compile::resolve_rust,
-        FileType::Go => compile::resolve_go,
-        FileType::Unknown(ext) => {
-            println!("❌ [SE] 無法編譯副檔名 為 '{ext}' 的檔案，請用 --type 指定檔案類型");
-            return None;
-        }
-    };
-
-    Some(match compile(&info.file) {
-        Ok(i) => i,
+    match prepare_command(&info.file, profile) {
+        Ok(i) => Some(i),
         Err(e) => {
             match e {
                 CompileError::SE(msg) => println!("❌ [SE] {}", msg),
                 CompileError::CE(msg) => println!("❌ [CE] {}", msg),
             };
-
-            process::exit(1);
+            None
         }
-    })
+    }
 }
 
 fn judge(info: TestInfo, mut runner: Command) {
@@ -107,7 +109,7 @@ fn judge(info: TestInfo, mut runner: Command) {
         current_test_round += 1;
         print_test_label(current_test_round);
 
-        let verdict = measure(&mut runner, &case.input, &case.answer, &limit);
+        let verdict = evaluate(&mut runner, &case.input, &case.answer, &limit);
 
         print_test_info(&verdict, &limit);
 

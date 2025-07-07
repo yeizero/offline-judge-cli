@@ -1,17 +1,16 @@
-use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::Stdio;
-use std::{fmt::Display, process::Command};
-
+use std::fmt::Display;
 use inquire::ui::{Color, RenderConfig, StyleSheet};
 use inquire::{Confirm, InquireError, Select, Text};
 use owo_colors::OwoColorize;
-use crate::setting_reader::{Setting, Plugin};
+use shared::{build_native_shell_command, get_exe_dir};
+use crate::configure::{GeneratorConfig, Plugin};
 use crate::structs::{parse_easy_config, ConfigFile, TestCase, TestLimit};
-use crate::utils::{get_exe_dir, with_ellipsis};
+use crate::utils::with_ellipsis;
 use crate::{error, escapable, info, warn};
 
-pub fn prompt_advance_options(setting: &Setting) -> Result<Option<ConfigFile>, InquireError> {
+pub fn prompt_advance_options(setting: &GeneratorConfig) -> Result<Option<ConfigFile>, InquireError> {
     let mut options = Vec::new();
 
     setting.plugins.as_ref().map(|plugins| {
@@ -25,7 +24,7 @@ pub fn prompt_advance_options(setting: &Setting) -> Result<Option<ConfigFile>, I
         return Ok(None);
     };
     let status = Confirm::new("你即將執行外部指令，是否信任?")
-        .with_help_message(&with_ellipsis(&ext.command.join(" "), 60))
+        .with_help_message(&with_ellipsis(&ext.command, 60))
         .with_default(true)
         .with_render_config(
             RenderConfig::default()
@@ -39,40 +38,40 @@ pub fn prompt_advance_options(setting: &Setting) -> Result<Option<ConfigFile>, I
         return Ok(None); 
     }
 
-    let program = &ext.command[0];
+    // let program = &ext.command[0];
     // SAFE `unwrap`: `plugins` are retrieved from config, which is loaded via exe_dir.
     let exe_path = get_exe_dir().unwrap();
-    let mut command = if (program.contains('/') || program.contains('\\')) && PathBuf::from(program).is_relative() {
-        let mut abs_path = exe_path.clone();
-        abs_path.push(program);
-        Command::new(abs_path)
-    } else {
-        Command::new(program)
-    };
 
-    let mut child = command
-        .args(&ext.command[1..ext.command.len()])
+    let mut child = build_native_shell_command(&ext.command)?
         .current_dir(exe_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("PYTHONIOENCODING", "UTF8")
-        .spawn()
-        .map_err(InquireError::IO)?;
+        .spawn()?;
 
     let mut stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
-    let stderr_handle = std::thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        let mut collected = String::new();
-        for line in reader.lines() {
-            let line = line.unwrap_or_default();
-            collected.push_str(&line);
-            collected.push('\n');
+    let stderr_handle = std::thread::spawn(move || -> String {
+        let mut reader = std::io::BufReader::new(stderr);
+        let mut total_buffer: Vec<u8> = Vec::new();
+        let mut chunk_buffer = [0; 1024];
+        loop {
+            match reader.read(&mut chunk_buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    total_buffer.extend_from_slice(&chunk_buffer[..n]);
+                },
+                Err(e) => {
+                    error!("讀取子程序 stderr 時發生錯誤", e);
+                    break;
+                }
+            }
         }
-        collected
+
+        String::from_utf8_lossy(&total_buffer).to_string()
     });
 
     let reader = BufReader::new(stdout);
@@ -142,8 +141,8 @@ pub fn prompt_advance_options(setting: &Setting) -> Result<Option<ConfigFile>, I
                 let config = parse_easy_config(&result_output);
                 Ok(Some(config))
             } else {
-                let stderr_output = stderr_handle.join().unwrap();
-                error!(stderr_output);
+                let stder_output = stderr_handle.join().unwrap();
+                error!(stder_output);
                 Ok(None)
             }
         },
@@ -191,7 +190,7 @@ impl<'a> Display for Action<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Cancel => write!(f, "返回"),
-            Self::External(ext) => write!(f, "{}", ext.option),
+            Self::External(ext) => write!(f, "{}", ext.name),
         }
     }
 }

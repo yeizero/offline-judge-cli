@@ -4,10 +4,10 @@ use inquire::{error::InquireResult, validator::Validation, CustomType, Editor, I
 use owo_colors::OwoColorize;
 
 use crate::{
-    advance::{prompt_advance_options, update_by_advance}, escapable, setting_reader::Setting, structs::{CaseInputCompleter, ConfigFile, LabelWithOptionIndex, OptionalInput, TestCase, TestLimit, YamlPathCompleter, OPEN_EDITOR_MAGIC}, utils::{file_path_validator, ESCAPABLE}
+    advance::{prompt_advance_options, update_by_advance}, escapable, configure::GeneratorConfig, structs::{CaseInputCompleter, ConfigFile, LabelWithOptionIndex, OptionalInput, TestCase, TestLimit, YamlPathCompleter, OPEN_EDITOR_MAGIC}, utils::{file_path_validator, ESCAPABLE}
 };
 
-pub fn generate_judge_config(setting: &Setting) -> InquireResult<String> {
+pub fn generate_test_case(setting: &GeneratorConfig) -> InquireResult<String> {
     let mut test_cases: Vec<TestCase> = Vec::new();
     let mut test_limit = TestLimit::new();
     let mut id: u32 = 1;

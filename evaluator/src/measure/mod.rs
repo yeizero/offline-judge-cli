@@ -3,19 +3,18 @@ use std::process::{Command, Stdio};
 use std::time::Instant;
 
 use memory::create_memory_monitor;
-pub use structs::{CompileError, JudgeStatus, JudgeVerdict, Limitation, SummaryInfo};
+pub use defs::{CompileError, JudgeStatus, JudgeVerdict, Limitation, SummaryInfo};
 pub use utils::PrettyNumber;
+pub use compile::prepare_command;
 use utils::{center_text, compare_lines_ignoring_line_endings};
-
-pub mod compile;
-mod structs;
+mod defs;
 mod utils;
-
+mod compile;
 mod memory;
 
 const INFO_SPACE: usize = 30;
 
-pub fn measure<'a>(
+pub fn evaluate<'a>(
     runner: &mut Command,
     input: &'a str,
     ans: &'a str,

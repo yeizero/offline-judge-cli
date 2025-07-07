@@ -1,31 +1,8 @@
-use std::{process::Command};
-
 use num_format::ToFormattedString;
 
 use crate::config::NUMBER_FORMAT;
 
 pub const TEMP_FILE_EXE: &str = "output.exe";
-
-pub fn is_compiler_available(compiler: &str) -> bool {
-    let result = Command::new(compiler).arg("--version").output();
-    if log::log_enabled!(log::Level::Debug) {
-        if let Ok(ref output) = result {
-            log::debug!(
-                "Program: {} / Stdout: {} / Stderr: {}",
-                compiler,
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-        } else {
-            log::debug!(
-                "Program: {} / Err: {}",
-                compiler,
-                result.as_ref().unwrap_err()
-            );
-        }
-    }
-    result.is_ok()
-}
 
 pub fn center_text(text: &str, total_length: usize, placeholder: &str) -> String {
     let text_length = text.len();

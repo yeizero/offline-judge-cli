@@ -1,8 +1,41 @@
-# This is a sample configuration file for the application debug.
+evaluator:
+  # 說明:
+  # compile/run: 代表編譯或執行的階段。
+  # command:     一個指令模板字串。
+  #
+  # 可用佔位符:
+  # {source} : 來源檔案路徑
+  # {output} : 編譯後輸出的執行檔路徑。
+  # {source_stem} : 來源檔案的名稱，不含副檔名
+  # {output_folder} : 編譯後輸出的執行檔資料夾的路徑。
+  languages:
+    - extension: cpp
+      compile:
+        command: "g++ -g -O2 -std=gnu++11 -static -lm {source} -o {output}"
+    - extension: java
+      compile:
+        command: "javac -d {output_folder} {source}"
+      run:
+        command: "java -client -Xss8m -Xmx1024m -cp {output_folder} {source_stem}"
+    - extension: py
+      run:
+        command: "python {source}"
+    - extension: c
+      compile:
+        command: "gcc -g -O2 -std=gnu99 -static -lm {source} -o {output}"
+    - extension: rs
+      compile:
+        command: "rustc -O -o {output} {source}"
+    - extension: go
+      compile:
+        command: "go build -o {output} {source}"
+    - extension: zig
+      compile:
+        command: "zig build-exe {source} -O ReleaseSafe -fno-stack-check -fno-sanitize-c -femit-bin={output}"
 generator:
   editor: vim
   plugins:
-    - option: 從ZeroJudge讀取
-      command: [ .venv\Scripts\python.exe, plugins/zerojudge.py ]
-    - option: ls
-      command: [ ls ]
+    - name: 從ZeroJudge讀取
+      command: ".venv/Scripts/python.exe plugins/zerojudge.py"
+    - name: pwd
+      command: "pwd"

@@ -10,26 +10,12 @@ pub const SUPPORT_CODE_TYPES: [&str; 6] = ["c", "cpp", "java", "py", "go", "rs"]
 
 #[macro_export]
 macro_rules! escapable {
-    // 匹配 `match` 的結構
     ($expr:expr, $stmt:expr) => {
         match $expr {
             Err($crate::InquireError::OperationCanceled) => $stmt, // 如果錯誤是 `OperationCanceled`，就執行這裡的語句
             result => result, // 否則返回結果
         }
     };
-}
-
-pub fn get_exe_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    if cfg!(debug_assertions) {
-        // debug
-        let current_dir = env::current_dir()?;
-        Ok(current_dir)
-    } else {
-        // release
-        let exe_path = env::current_exe()?;
-        let exe_dir = exe_path.parent().ok_or("Failed to get exe directory")?;
-        Ok(exe_dir.to_path_buf())
-    }
 }
 
 pub fn test_create_file<P: AsRef<Path>>(file_path: P) -> FileStatus {
@@ -197,53 +183,4 @@ macro_rules! info {
             format!("! {}", $msg).bright_blue()
         );
     };
-}
-
-#[cfg(test)]
-use owo_colors::OwoColorize;
-
-#[cfg(test)]
-mod tests {
-    // 引入你實現的 error 宏（這裡假設你有引入 colored 庫來支持 .red()）
-    use super::*;
-
-    // 測試 1: 簡單的錯誤訊息
-    #[test]
-    fn test_error_single_message() {
-        // 這裡只會輸出錯誤訊息，並且測試永遠通過
-        error!("無法開啟檔案");
-
-        // 確保測試成功
-        assert!(true);
-    }
-
-    // 測試 2: 錯誤名稱與錯誤訊息
-    #[test]
-    fn test_error_with_name() {
-        // 錯誤名稱與錯誤訊息
-        error!("檔案錯誤", "無法開啟檔案");
-
-        // 確保測試成功
-        assert!(true);
-    }
-
-    // 測試 3: 格式化錯誤訊息
-    #[test]
-    fn test_error_with_format_args() {
-        // 帶有格式化參數的錯誤
-        error!("讀取錯誤", "無法解析檔案: {}", "檔案不存在");
-
-        // 確保測試成功
-        assert!(true);
-    }
-
-    // 測試 4: 錯誤名稱與多個格式化參數
-    #[test]
-    fn test_error_with_name_and_format_args() {
-        // 錯誤名稱與格式化參數
-        error!("網路錯誤", "無法連線到 {}: {}", "example.com", 8080);
-
-        // 確保測試成功
-        assert!(true);
-    }
 }

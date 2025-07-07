@@ -5,20 +5,20 @@ use serde_yml;
 
 use super::error::ReaderError;
 
-pub fn read_config(path: ConfigPath) -> Result<Config, ReaderError> {
+pub fn read_test_cases(path: TestCasePath) -> Result<TestCases, ReaderError> {
     let path  = match path {
-        ConfigPath::Specified(p) => p,
-        ConfigPath::NoExtension(p) => {
+        TestCasePath::Specified(p) => p,
+        TestCasePath::NoExtension(p) => {
             resolve_yaml_path(p)?
         },
     };
     let raw_str = fs::read_to_string(&path)
         .map_err(|_| ReaderError::FileNotFound(path.to_string_lossy().to_string()))?;
     
-    let config: Config = serde_yml::from_str(&raw_str)
+    let cases: TestCases = serde_yml::from_str(&raw_str)
         .map_err(|e| ReaderError::General(e.to_string()))?;
 
-    Ok(config)
+    Ok(cases)
 }
 
 fn resolve_yaml_path<P: AsRef<Path>>(base_path: P) -> Result<PathBuf, ReaderError> {
@@ -44,23 +44,23 @@ fn resolve_yaml_path<P: AsRef<Path>>(base_path: P) -> Result<PathBuf, ReaderErro
     }
 }
 
-pub enum ConfigPath {
+pub enum TestCasePath {
     Specified(PathBuf),
     NoExtension(PathBuf),
 }
 
-impl ConfigPath {
+impl TestCasePath {
     pub fn specified<P: AsRef<Path>>(path: P) -> Self {
-        ConfigPath::Specified(path.as_ref().to_path_buf())
+        TestCasePath::Specified(path.as_ref().to_path_buf())
     }
 
     pub fn no_extension<P: AsRef<Path>>(path: P) -> Self {
-        ConfigPath::NoExtension(path.as_ref().to_path_buf())
+        TestCasePath::NoExtension(path.as_ref().to_path_buf())
     }
 }
 
 #[derive(Deserialize, Debug)]
-pub struct Config {
+pub struct TestCases {
     pub cases: Vec<TestCase>,
     pub limit: Option<LimitInfo>,
 }
