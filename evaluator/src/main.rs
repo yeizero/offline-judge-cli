@@ -18,7 +18,7 @@ use reader::{TestInfo, resolve_args};
 use crate::reader::{EvaluatorConfig, read_config};
 
 fn main() {
-    let info = match resolve_args() {
+    let mut info = match resolve_args() {
         Ok(i) => i,
         Err(e) => {
             println!("❌ [SE] {}", e);
@@ -32,6 +32,7 @@ fn main() {
             process::exit(1);
         }
     };
+    info.with_config(&config);
 
     let Some(runner) = compile_source_code(&info, &config) else {
         process::exit(1);
@@ -104,6 +105,12 @@ fn judge(info: TestInfo, mut runner: Command) {
         Cell::new("記憶體 (KiB)"),
         Cell::new("結果"),
     ]));
+
+    if let Some(warmup) = info.warmup_times && warmup > 0 && let Some(case) = info.cases.get(0) {
+        for _ in 0..warmup {
+            evaluate(&mut runner, &case.input, &case.answer, &limit);
+        }
+    }
 
     for case in info.cases.iter() {
         current_test_round += 1;

@@ -84,7 +84,7 @@ fn get_memory_usage(handle: &ProcessHandle) -> Option<usize> {
   let cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
 
   if unsafe { GetProcessMemoryInfo(process_handle, &mut pmc, cb) }.is_ok() {
-      let memory_usage_bytes = pmc.WorkingSetSize;
+      let memory_usage_bytes = pmc.PeakWorkingSetSize;
       let memory_usage_kb = memory_usage_bytes / 1024;
       Some(memory_usage_kb)
   } else {

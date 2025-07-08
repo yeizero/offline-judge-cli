@@ -1,6 +1,6 @@
 [package]
 name = "evaluator"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 
 [dependencies]
@@ -16,3 +16,4 @@ serde_yml = "0.0.12"
 simplelog = "0.12.2"
 win32job = "2.0.3"
 windows = { version = "0.52.0", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+# similar = { version = "2.7.0", features = ["inline"] }

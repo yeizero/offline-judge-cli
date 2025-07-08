@@ -32,6 +32,7 @@ evaluator:
     - extension: zig
       compile:
         command: "zig build-exe {source} -O ReleaseSafe -fno-stack-check -fno-sanitize-c -femit-bin={output}"
+  warmup: 1
 generator:
   editor: vim
   plugins:

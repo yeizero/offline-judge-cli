@@ -53,7 +53,7 @@ impl FilePathCompleter {
         for entry in entries {
             let path = entry.path();
             if path.is_file() {
-              self.paths.push(path.to_string_lossy().replace("\\", "/").trim_start_matches("./").to_string());
+              self.paths.push(path.to_string_lossy().replace("\\", "/").trim_start_matches("./").to_owned());
             }
         }
 
@@ -147,7 +147,7 @@ impl YamlPathCompleter {
                 path.set_extension("yaml");
                 let status = test_create_file(&path);
                 if matches!(status, FileStatus::NotFound) {
-                    self.paths.push(path.to_string_lossy().replace("\\", "/").trim_start_matches("./").to_string());
+                    self.paths.push(path.to_string_lossy().replace("\\", "/").trim_start_matches("./").to_owned());
                 }
             }
         }

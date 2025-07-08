@@ -10,6 +10,7 @@ struct ConfigRoot {
 #[derive(Debug, Deserialize)]
 pub struct EvaluatorConfig {
     pub languages: Vec<LanguageProfile>,
+    pub warmup: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,5 +29,6 @@ pub fn read_config() -> Result<EvaluatorConfig, Box<dyn std::error::Error>> {
     let config_path = get_config_path()?;
     let config_contents = fs::read_to_string(&config_path).map_err(|_| format!("Failed to read {}: file not found", config_path.display()))?;
     let root: ConfigRoot = serde_yml::from_str(&config_contents).map_err(|e| format!("Failed to read {}: {}", config_path.display(), e))?;
+    log::debug!("{:?}", root.evaluator);
     Ok(root.evaluator)
 }

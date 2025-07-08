@@ -34,7 +34,7 @@ fn get_code_paths(judge_config_path: &str) -> Vec<CodeOption> {
       return;
     }
 
-    let file_name = code_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let file_name = code_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     code_file_paths.push(CodeOption::File { 
       path: code_path, 
       file_name

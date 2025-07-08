@@ -13,7 +13,7 @@ pub fn read_test_cases(path: TestCasePath) -> Result<TestCases, ReaderError> {
         },
     };
     let raw_str = fs::read_to_string(&path)
-        .map_err(|_| ReaderError::FileNotFound(path.to_string_lossy().to_string()))?;
+        .map_err(|_| ReaderError::FileNotFound(path.to_string_lossy().into_owned()))?;
     
     let cases: TestCases = serde_yml::from_str(&raw_str)
         .map_err(|e| ReaderError::General(e.to_string()))?;
@@ -39,7 +39,7 @@ fn resolve_yaml_path<P: AsRef<Path>>(base_path: P) -> Result<PathBuf, ReaderErro
             yaml_path.display()
         ))),
         (false, false) => Err(ReaderError::NoConfigFile(
-            yaml_path.to_string_lossy().to_string()
+            yaml_path.to_string_lossy().into_owned()
         )),
     }
 }
@@ -71,19 +71,8 @@ pub struct TestCase {
     pub answer: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 pub struct LimitInfo {
     pub memory: Option<usize>,
     pub time: Option<u64>,
-}
-
-pub fn flatten_limit_info(limit: Option<LimitInfo>) -> LimitInfo {
-    if let Some(l) = limit {
-        l
-    } else {
-        LimitInfo {
-            memory: None,
-            time: None,
-        }
-    }
 }

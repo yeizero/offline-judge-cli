@@ -2,7 +2,8 @@ use clap::Parser;
 use std::{path::Path, time::Duration};
 use super::utils::{change_extension, file_exists};
 use crate::logger::init_logger;
-use super::test_cases::{flatten_limit_info, read_test_cases, TestCasePath, TestCase};
+use crate::reader::EvaluatorConfig;
+use super::test_cases::{read_test_cases, TestCasePath, TestCase};
 use super::error::ReaderError;
 
 /// Evaluator - Code Judge Tool
@@ -82,6 +83,7 @@ pub fn resolve_args() -> Result<TestInfo, ReaderError> {
             max_memory: None,
             max_time: None,
             do_judge: false,
+            warmup_times: None,
         })
     } else {
         let config = read_test_cases(if let Some(config) = args.config {
@@ -92,7 +94,7 @@ pub fn resolve_args() -> Result<TestInfo, ReaderError> {
 
         log::debug!("{:?}", &config);
 
-        let config_limit = flatten_limit_info(config.limit);
+        let config_limit = config.limit.unwrap_or_default();
 
         Ok(TestInfo {
             file_type,
@@ -106,6 +108,7 @@ pub fn resolve_args() -> Result<TestInfo, ReaderError> {
                 .or_else(|| config_limit.time)
                 .map(|t| Duration::from_millis(t)),
             do_judge: true,
+            warmup_times: args.warmup
         })        
     }
 }
@@ -117,4 +120,13 @@ pub struct TestInfo {
     pub max_memory: Option<usize>,
     pub max_time: Option<Duration>,
     pub do_judge: bool,
+    pub warmup_times: Option<u32>,
+}
+
+impl TestInfo {
+    pub fn with_config(&mut self, config: &EvaluatorConfig) {
+        if self.warmup_times.is_none() {
+            self.warmup_times = config.warmup;
+        }
+    }
 }
