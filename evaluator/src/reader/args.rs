@@ -1,10 +1,10 @@
-use clap::Parser;
-use std::{path::Path, time::Duration};
+use super::error::ReaderError;
+use super::test_cases::{TestCase, TestCasePath, read_test_cases};
 use super::utils::{change_extension, file_exists};
 use crate::logger::init_logger;
 use crate::reader::EvaluatorConfig;
-use super::test_cases::{read_test_cases, TestCasePath, TestCase};
-use super::error::ReaderError;
+use clap::Parser;
+use std::{path::Path, time::Duration};
 
 /// Evaluator - Code Judge Tool
 #[derive(Parser, Debug)]
@@ -59,8 +59,12 @@ pub struct Args {
 pub fn resolve_args() -> Result<TestInfo, ReaderError> {
     let args = Args::parse();
 
-    init_logger(if args.verbose {log::LevelFilter::Debug} else {log::LevelFilter::Warn});
-    
+    init_logger(if args.verbose {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Warn
+    });
+
     log::debug!("{:?}", &args);
 
     if !file_exists(&args.file) {
@@ -100,16 +104,11 @@ pub fn resolve_args() -> Result<TestInfo, ReaderError> {
             file_type,
             file: args.file,
             cases: config.cases,
-            max_memory: args
-                .memory
-                .or_else(|| config_limit.memory),
-            max_time: args
-                .time
-                .or_else(|| config_limit.time)
-                .map(|t| Duration::from_millis(t)),
+            max_memory: args.memory.or(config_limit.memory),
+            max_time: args.time.or(config_limit.time).map(Duration::from_millis),
             do_judge: true,
-            warmup_times: args.warmup
-        })        
+            warmup_times: args.warmup,
+        })
     }
 }
 

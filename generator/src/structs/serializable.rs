@@ -1,9 +1,9 @@
+use owo_colors::OwoColorize;
 use serde::Serialize;
 use std::collections::VecDeque;
-use owo_colors::OwoColorize;
 
 #[derive(Serialize)]
-pub struct ConfigFile {
+pub struct TestSuite {
     pub limit: Option<TestLimit>,
     pub cases: Vec<TestCase>,
 }
@@ -30,8 +30,8 @@ impl TestLimit {
             time: None,
         }
     }
-    pub fn to_option(self) -> Option<Self> {
-        if (&self.memory).is_some() || (&self.time).is_some() {
+    pub fn into_option(self) -> Option<Self> {
+        if self.memory.is_some() || self.time.is_some() {
             Some(self)
         } else {
             None
@@ -39,9 +39,12 @@ impl TestLimit {
     }
 }
 
-pub fn parse_easy_config(input: &str) -> ConfigFile {
+pub fn parse_easy_test_suite(input: &str) -> TestSuite {
     let mut lines = input.lines();
-    let mut limit = TestLimit { memory: None, time: None };
+    let mut limit = TestLimit {
+        memory: None,
+        time: None,
+    };
     let mut inputs = VecDeque::new();
     let mut answers = VecDeque::new();
     let mut cases = Vec::new();
@@ -50,9 +53,10 @@ pub fn parse_easy_config(input: &str) -> ConfigFile {
         let parts: Vec<&str> = header.split_whitespace().collect();
 
         if parts.len() != 2 {
-            eprintln!("{}", format!(
-                "[Parse] 錯誤格式（應為 `key 行數`）: `{}`", header
-            ).red());
+            eprintln!(
+                "{}",
+                format!("[Parse] 錯誤格式（應為 `key 行數`）: `{}`", header).red()
+            );
             continue;
         }
 
@@ -70,10 +74,14 @@ pub fn parse_easy_config(input: &str) -> ConfigFile {
             match lines.next() {
                 Some(line) => content.push(line.to_string()),
                 None => {
-                    eprintln!("{}", format!(
-                        "[Parse] 期待 {} 行，但只取得 {} 行，在 key `{}`",
-                        count, i, key
-                    ).red());
+                    eprintln!(
+                        "{}",
+                        format!(
+                            "[Parse] 期待 {} 行，但只取得 {} 行，在 key `{}`",
+                            count, i, key
+                        )
+                        .red()
+                    );
                     break;
                 }
             }
@@ -95,19 +103,26 @@ pub fn parse_easy_config(input: &str) -> ConfigFile {
                 }
 
                 let iter = tokens.chunks(2);
-            
+
                 for chunk in iter {
                     match chunk {
                         ["time", val] => match val.parse::<u64>() {
                             Ok(ms) => limit.time = Some(ms),
-                            Err(_) => eprintln!("{}", format!("[Parse] 時間格式錯誤: `{}`", val).red()),
+                            Err(_) => {
+                                eprintln!("{}", format!("[Parse] 時間格式錯誤: `{}`", val).red())
+                            }
                         },
                         ["memory", val] => match val.parse::<u32>() {
                             Ok(mem) => limit.memory = Some(mem),
-                            Err(_) => eprintln!("{}", format!("[Parse] 記憶體格式錯誤: `{}`", val).red()),
+                            Err(_) => {
+                                eprintln!("{}", format!("[Parse] 記憶體格式錯誤: `{}`", val).red())
+                            }
                         },
                         _ => {
-                            eprintln!("{}", format!("[Parse] limit 欄位未知格式: {:?}", chunk).red());
+                            eprintln!(
+                                "{}",
+                                format!("[Parse] limit 欄位未知格式: {:?}", chunk).red()
+                            );
                         }
                     }
                 }
@@ -134,15 +149,15 @@ pub fn parse_easy_config(input: &str) -> ConfigFile {
         None
     };
 
-    ConfigFile { limit, cases }
+    TestSuite { limit, cases }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn case(input: &str) -> ConfigFile {
-        parse_easy_config(input)
+    fn case(input: &str) -> TestSuite {
+        parse_easy_test_suite(input)
     }
 
     #[test]
@@ -192,7 +207,7 @@ answer 1
         assert_eq!(config.limit.as_ref().unwrap().memory, Some(256));
         assert_eq!(config.limit.as_ref().unwrap().time, None);
     }
-    
+
     #[test]
     fn test_parse_invalid_limit_odd_tokens() {
         let input = r#"
@@ -201,7 +216,7 @@ answer 1
     memory
     "#;
         let config = case(input.trim());
-    
+
         assert!(config.limit.is_none());
     }
     #[test]

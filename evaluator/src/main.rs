@@ -1,44 +1,62 @@
+#![deny(clippy::all)]
+#![deny(clippy::if_then_some_else_none)]
+#![deny(clippy::empty_enum_variants_with_brackets)]
+#![deny(clippy::empty_structs_with_brackets)]
+#![deny(clippy::separated_literal_suffix)]
+#![deny(clippy::semicolon_outside_block)]
+#![deny(clippy::non_zero_suggestions)]
+#![deny(clippy::string_lit_chars_any)]
+#![deny(clippy::use_self)]
+#![deny(clippy::useless_let_if_seq)]
+#![deny(clippy::branches_sharing_code)]
+#![deny(clippy::equatable_if_let)]
+
+mod compile;
 mod config;
+mod judge;
 mod logger;
-mod measure;
 mod reader;
+mod monitor;
+mod utils;
 
 use std::process::{self, Command};
 
-use measure::{
-    CompileError, Limitation, PrettyNumber, SummaryInfo, evaluate, prepare_command,
-    print_test_info, print_test_label,
+use compile::prepare_command;
+use judge::{
+    evaluate, print_test_info, print_test_label,
+    verdict::{CompileError, Limitation, SummaryInfo},
 };
 use prettytable::{
     Cell, Row, Table,
     format::{FormatBuilder, LinePosition, LineSeparator},
 };
 use reader::{TestInfo, resolve_args};
+use utils::PrettyNumber;
 
-use crate::reader::{EvaluatorConfig, read_config};
+use crate::{
+    config::TEMP_DIR,
+    reader::{EvaluatorConfig, ensure_dir_exists, read_config},
+};
 
 fn main() {
-    let mut info = match resolve_args() {
-        Ok(i) => i,
-        Err(e) => {
-            println!("❌ [SE] {}", e);
-            process::exit(1);
-        }
-    };
-    let config = match read_config() {
-        Ok(i) => i,
-        Err(e) => {
-            println!("❌ [SE] {}", e);
-            process::exit(1);
-        }
-    };
+    let mut info = resolve_args().unwrap_or_else(|e| {
+        println!("❌ [SE] {e}");
+        process::exit(1);
+    });
+
+    let config = read_config().unwrap_or_else(|e| {
+        println!("❌ [SE] {e}");
+        process::exit(1);
+    });
     info.with_config(&config);
+
+    ensure_dir_exists(TEMP_DIR.as_path()).unwrap();
 
     let Some(runner) = compile_source_code(&info, &config) else {
         process::exit(1);
     };
 
-    log::debug!("runner: {:?}", runner);
+    log::debug!("runner: {runner:?}");
 
     if info.do_judge {
         judge(info, runner);
@@ -48,9 +66,15 @@ fn main() {
 }
 
 fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Option<Command> {
-    let profile = config.languages.iter().find(|lang| lang.extension == info.file_type);
+    let profile = config
+        .languages
+        .iter()
+        .find(|lang| lang.extension == info.file_type);
     let Some(profile) = profile else {
-        println!("❌ [SE] 未知原始碼副檔名 {} ，請選擇 config.yaml 中含有的類型", info.file_type);
+        println!(
+            "❌ [SE] 未知原始碼副檔名 {} ，請選擇 config.yaml 中含有的類型",
+            info.file_type
+        );
         return None;
     };
 
@@ -62,8 +86,8 @@ fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Option<Comm
         Ok(i) => Some(i),
         Err(e) => {
             match e {
-                CompileError::SE(msg) => println!("❌ [SE] {}", msg),
-                CompileError::CE(msg) => println!("❌ [CE] {}", msg),
+                CompileError::SE(msg) => println!("❌ [SE] {msg}"),
+                CompileError::CE(msg) => println!("❌ [CE] {msg}"),
             };
             None
         }
@@ -106,7 +130,10 @@ fn judge(info: TestInfo, mut runner: Command) {
         Cell::new("結果"),
     ]));
 
-    if let Some(warmup) = info.warmup_times && warmup > 0 && let Some(case) = info.cases.get(0) {
+    if let Some(warmup) = info.warmup_times
+        && warmup > 0
+        && let Some(case) = info.cases.first()
+    {
         for _ in 0..warmup {
             evaluate(&mut runner, &case.input, &case.answer, &limit);
         }
@@ -123,14 +150,15 @@ fn judge(info: TestInfo, mut runner: Command) {
         report_table.add_row(Row::new(vec![
             Cell::new(if verdict.is_accept() { "✅" } else { "❌" }),
             Cell::new(&current_test_round.to_string()),
-            Cell::new(&match verdict.duration {
-                Some(value) => value.as_millis().prettify(),
-                None => "Unknown".to_owned(),
-            }),
-            Cell::new(&match verdict.memory {
-                Some(value) => value.prettify(),
-                None => "Unknown".to_owned(),
-            }),
+            Cell::new(&verdict.duration.map_or_else(
+                || "Unknown".to_owned(),
+                |value| value.as_millis().prettify(),
+            )),
+            Cell::new(
+                &verdict
+                    .memory
+                    .map_or_else(|| "Unknown".to_owned(), |value| value.prettify()),
+            ),
             Cell::new(verdict.status.to_str_short()),
         ]));
 
@@ -148,7 +176,7 @@ fn judge(info: TestInfo, mut runner: Command) {
     );
     report_table.printstd();
 
-    println!("{}", format!("🎯 {}", summary_info));
+    println!("🎯 {summary_info}");
 }
 
 fn execute(mut runner: Command) {

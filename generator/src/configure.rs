@@ -1,39 +1,54 @@
-use std::{env, fs};
 use serde::Deserialize;
-// use env;
 use shared::get_config_path;
+use std::env;
+use fs_err as fs;
 
-pub fn read_config() -> Result<GeneratorConfig, Box<dyn std::error::Error>> {
+pub fn read_config() -> anyhow::Result<GeneratorConfig> {
     let config_path = get_config_path()?;
-    let config_contents = fs::read_to_string(&config_path).map_err(|_| format!("Failed to read {}: file not found", config_path.display()))?;
-    let root: ConfigRoot = serde_yml::from_str(&config_contents).map_err(|e| format!("Failed to read {}: {}", config_path.display(), e))?;
-    Ok(root.as_config())
+    let config_contents = fs::read_to_string(&config_path)?;
+    let root: ConfigRoot = serde_yml::from_str(&config_contents)?;
+    Ok(root.into_config())
 }
 
+/// MUST be called in the single thread
 pub fn apply_config(config: &GeneratorConfig) {
-  if let Some(editor) = &config.editor {
-    if !editor.is_empty() {
-      // SAFETY: Called before any threads are spawned, in the single-threaded init phase.
-      unsafe { env::set_var("EDITOR", editor); }
+    if let Some(editor) = &config.editor
+        && !editor.is_empty()
+    {
+        // SAFETY: Called before any threads are spawned, in the single-threaded init phase.
+        unsafe {
+            env::set_var("EDITOR", editor);
+        }
     }
-  }
 }
 
 #[derive(Debug, Deserialize)]
 struct ConfigRoot {
-  pub generator: Option<GeneratorConfig>,
+    pub evaluator: PartialEvaluatorConfig,
+    pub generator: Option<GeneratorConfig>,
 }
 
 impl ConfigRoot {
-  pub fn as_config(self) -> GeneratorConfig {
-    self.generator.unwrap_or_default()
-  }
+    pub fn into_config(self) -> GeneratorConfig {
+        let mut config = self.generator.unwrap_or_default();
+
+        config.supported_code_types = self
+            .evaluator
+            .languages
+            .into_iter()
+            .map(|lang| lang.extension)
+            .collect();
+
+        config
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct GeneratorConfig {
     pub editor: Option<String>,
     pub plugins: Option<Vec<Plugin>>,
+    #[serde(skip_deserializing, default)]
+    pub supported_code_types: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,6 +57,12 @@ pub struct Plugin {
     pub command: String,
 }
 
-pub fn flatten_config(config: Option<GeneratorConfig>) -> GeneratorConfig {
-    config.unwrap_or_default()
+#[derive(Debug, Deserialize)]
+pub struct PartialEvaluatorConfig {
+    pub languages: Vec<PartialLanguageProfile>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PartialLanguageProfile {
+    pub extension: String,
 }

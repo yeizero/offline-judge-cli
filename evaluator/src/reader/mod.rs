@@ -1,8 +1,8 @@
 mod args;
-mod test_cases;
-mod error;
-mod utils;
 mod configure;
+mod error;
+mod test_cases;
+mod utils;
+pub use args::{TestInfo, resolve_args};
+pub use configure::{EvaluatorConfig, LanguageProfile, read_config};
 pub use utils::ensure_dir_exists;
-pub use args::{resolve_args, TestInfo};
-pub use configure::{read_config, EvaluatorConfig, LanguageProfile};

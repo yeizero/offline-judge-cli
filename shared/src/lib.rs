@@ -1,10 +1,10 @@
-use std::io;
-use std::{env, path::PathBuf};
-use std::process::Command;
 #[cfg(unix)]
-use::shlex;
+use ::shlex;
+use std::io;
+use std::process::Command;
+use std::{env, path::PathBuf};
 
-pub fn get_exe_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn get_exe_dir() -> io::Result<PathBuf> {
     if cfg!(debug_assertions) {
         // debug
         let current_dir = env::current_dir()?;
@@ -12,26 +12,29 @@ pub fn get_exe_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     } else {
         // release
         let exe_path = env::current_exe()?;
-        let exe_dir = exe_path.parent().ok_or("Failed to get exe directory")?;
+        let exe_dir = exe_path.parent().ok_or(io::Error::other("Failed to get exe directory"))?;
         Ok(exe_dir.to_path_buf())
     }
 }
 
-pub fn get_config_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn get_config_path() -> io::Result<PathBuf> {
     Ok(get_exe_dir()?.join("config.yaml"))
 }
 
 #[cfg(windows)]
-pub fn build_native_shell_command(command_string: &str) -> Result<Command, io::Error> {
+pub fn build_native_shell_command(command_string: &str) -> io::Result<Command> {
     let mut cmd = Command::new("powershell");
     cmd.arg("-Command").arg(command_string);
     Ok(cmd)
 }
 
 #[cfg(unix)]
-pub fn build_native_shell_command(command_string: &str) -> Result<Command, io::Error> {
+pub fn build_native_shell_command(command_string: &str) -> io::Result<Command> {
     let args = shlex::split(command_string).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "Failed to parse command string")
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Failed to parse command string",
+        )
     })?;
     if args.is_empty() {
         return Err(io::Error::new(
@@ -47,9 +50,9 @@ pub fn build_native_shell_command(command_string: &str) -> Result<Command, io::E
 }
 
 #[cfg(not(any(unix, windows)))]
-pub fn build_native_shell_command(_command_string: &str) -> Result<Command, io::Error> {
+pub fn build_native_shell_command(_command_string: &str) -> io::Result<Command> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
-        "This platform is not supported for native shell commands."
+        "This platform is not supported for native shell commands.",
     ))
 }

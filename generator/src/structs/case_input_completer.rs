@@ -1,6 +1,6 @@
 use inquire::{
-  autocompletion::{Autocomplete, Replacement},
-  CustomUserError,
+    CustomUserError,
+    autocompletion::{Autocomplete, Replacement},
 };
 
 pub const OPEN_EDITOR_MAGIC: &str = "開啟編輯器\u{200B}";
@@ -9,22 +9,19 @@ pub const OPEN_EDITOR_MAGIC: &str = "開啟編輯器\u{200B}";
 pub struct CaseInputCompleter;
 
 impl Autocomplete for CaseInputCompleter {
-  fn get_suggestions(&mut self, input: &str) -> Result<Vec<String>, CustomUserError> {
-      if input.trim().is_empty() {
-          Ok(vec![OPEN_EDITOR_MAGIC.to_owned()])
-      } else {
-          Ok(Vec::new())
-      }
-  }
+    fn get_suggestions(&mut self, input: &str) -> Result<Vec<String>, CustomUserError> {
+        if input.trim().is_empty() {
+            Ok(vec![OPEN_EDITOR_MAGIC.to_owned()])
+        } else {
+            Ok(Vec::new())
+        }
+    }
 
-  fn get_completion(
-      &mut self,
-      _input: &str,
-      highlighted_suggestion: Option<String>,
-  ) -> Result<Replacement, CustomUserError> {
-      Ok(match highlighted_suggestion {
-          Some(suggestion) => Replacement::Some(suggestion),
-          None => Replacement::None,
-      })
-  }
+    fn get_completion(
+        &mut self,
+        _input: &str,
+        highlighted_suggestion: Option<String>,
+    ) -> Result<Replacement, CustomUserError> {
+        Ok(highlighted_suggestion)
+    }
 }

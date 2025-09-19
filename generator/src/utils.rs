@@ -1,12 +1,10 @@
 use std::env::current_dir;
-use std::path::{Path, PathBuf};
 use std::fs::File;
+use std::path::{Path, PathBuf};
 
-use inquire::validator::{Validation, ErrorMessage};
+use inquire::validator::{ErrorMessage, Validation};
 
 pub const ESCAPABLE: &str = "Esc to cancel";
-
-pub const SUPPORT_CODE_TYPES: [&str; 6] = ["c", "cpp", "java", "py", "go", "rs"];
 
 #[macro_export]
 macro_rules! escapable {
@@ -19,37 +17,35 @@ macro_rules! escapable {
 }
 
 pub fn test_create_file<P: AsRef<Path>>(file_path: P) -> FileStatus {
-  let path = match current_dir() {
-      Ok(current) => current.join(file_path.as_ref()),
-      Err(_) => PathBuf::from(file_path.as_ref())
-  };
-  
-  // 檢查父目錄是否存在
-  if let Some(parent) = path.parent() {
-      if !parent.exists() {
-          return FileStatus::ParentNotExists;
-      }
-  }
+    let path = match current_dir() {
+        Ok(current) => current.join(file_path.as_ref()),
+        Err(_) => PathBuf::from(file_path.as_ref()),
+    };
 
-  if path.is_file() {
-    return FileStatus::Exists;
-  } 
+    // 檢查父目錄是否存在
+    if let Some(parent) = path.parent()
+        && !parent.exists()
+    {
+        return FileStatus::ParentNotExists;
+    }
 
-  if path.is_dir() {
-    return FileStatus::IsDir;
-  }
-  
-  // 嘗試實際創建檔案
-  match File::create(&path) {
-      Ok(file) => {
-          drop(file);
-          let _ = std::fs::remove_file(&path);
-          FileStatus::NotFound
-      },
-      Err(_) => {
-          FileStatus::Failed
-      }
-  }
+    if path.is_file() {
+        return FileStatus::Exists;
+    }
+
+    if path.is_dir() {
+        return FileStatus::IsDir;
+    }
+
+    // 嘗試實際創建檔案
+    match File::create(&path) {
+        Ok(file) => {
+            drop(file);
+            let _ = std::fs::remove_file(&path);
+            FileStatus::NotFound
+        }
+        Err(_) => FileStatus::Failed,
+    }
 }
 
 #[derive(Debug)]
@@ -58,7 +54,7 @@ pub enum FileStatus {
     ParentNotExists,
     Failed,
     Exists,
-    IsDir
+    IsDir,
 }
 
 impl FileStatus {
@@ -73,14 +69,24 @@ impl FileStatus {
     }
 }
 
-pub fn file_path_validator(input: String) -> Result<Validation, Box<dyn std::error::Error + Send + Sync>> {
-    if (&input).len() == 0 {
-      return  Ok(Validation::Invalid(ErrorMessage::Custom("請輸入檔案名稱".to_owned())));
+pub fn file_path_validator(
+    input: String,
+) -> Result<Validation, Box<dyn std::error::Error + Send + Sync>> {
+    if input.is_empty() {
+        return Ok(Validation::Invalid(ErrorMessage::Custom(
+            "請輸入檔案名稱".to_owned(),
+        )));
     }
     match test_create_file(&input) {
         FileStatus::NotFound => Ok(Validation::Valid),
-        status @ FileStatus::Exists => Ok(Validation::Invalid(ErrorMessage::Custom(format!("{} ({})", &status.to_str(), &input)))),
-        status => Ok(Validation::Invalid(ErrorMessage::Custom(status.to_str().to_owned()))),
+        status @ FileStatus::Exists => Ok(Validation::Invalid(ErrorMessage::Custom(format!(
+            "{} ({})",
+            &status.to_str(),
+            &input
+        )))),
+        status => Ok(Validation::Invalid(ErrorMessage::Custom(
+            status.to_str().to_owned(),
+        ))),
     }
 }
 

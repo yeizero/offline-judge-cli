@@ -1,22 +1,19 @@
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde_yml;
 
 use super::error::ReaderError;
 
 pub fn read_test_cases(path: TestCasePath) -> Result<TestCases, ReaderError> {
-    let path  = match path {
+    let path = match path {
         TestCasePath::Specified(p) => p,
-        TestCasePath::NoExtension(p) => {
-            resolve_yaml_path(p)?
-        },
+        TestCasePath::NoExtension(p) => resolve_yaml_path(p)?,
     };
     let raw_str = fs::read_to_string(&path)
         .map_err(|_| ReaderError::FileNotFound(path.to_string_lossy().into_owned()))?;
-    
-    let cases: TestCases = serde_yml::from_str(&raw_str)
-        .map_err(|e| ReaderError::General(e.to_string()))?;
+
+    let cases: TestCases =
+        serde_yml::from_str(&raw_str).map_err(|e| ReaderError::General(e.to_string()))?;
 
     Ok(cases)
 }
@@ -39,7 +36,7 @@ fn resolve_yaml_path<P: AsRef<Path>>(base_path: P) -> Result<PathBuf, ReaderErro
             yaml_path.display()
         ))),
         (false, false) => Err(ReaderError::NoConfigFile(
-            yaml_path.to_string_lossy().into_owned()
+            yaml_path.to_string_lossy().into_owned(),
         )),
     }
 }
@@ -51,11 +48,11 @@ pub enum TestCasePath {
 
 impl TestCasePath {
     pub fn specified<P: AsRef<Path>>(path: P) -> Self {
-        TestCasePath::Specified(path.as_ref().to_path_buf())
+        Self::Specified(path.as_ref().to_path_buf())
     }
 
     pub fn no_extension<P: AsRef<Path>>(path: P) -> Self {
-        TestCasePath::NoExtension(path.as_ref().to_path_buf())
+        Self::NoExtension(path.as_ref().to_path_buf())
     }
 }
 
