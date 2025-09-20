@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use owo_colors::OwoColorize;
 
+use crate::judge::comparison::StyledDiff;
 use crate::utils::PrettyNumber;
 
 pub struct Limitation {
@@ -35,17 +36,15 @@ impl Default for Limitation {
 pub struct JudgeVerdict<'a> {
     pub status: JudgeStatus,
     pub input: &'a str,
-    pub answer: &'a str,
     pub duration: Option<Duration>,
     pub memory: Option<usize>,
 }
 
 impl<'a> JudgeVerdict<'a> {
-    pub fn new(input: &'a str, answer: &'a str) -> Self {
+    pub fn new(input: &'a str) -> Self {
         Self {
             status: JudgeStatus::RE("Failed".to_owned()),
             input,
-            answer,
             duration: None,
             memory: None,
         }
@@ -71,7 +70,7 @@ pub enum JudgeStatus {
     /// Runtime Error
     RE(String),
     /// Wrong Answer
-    WA(String),
+    WA(StyledDiff),
     /// Time Limit Exceeded
     Tle(Duration),
     /// Memory Limit Exceeded
@@ -119,18 +118,6 @@ impl JudgeStatus {
     }
 }
 
-impl fmt::Display for JudgeStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::RE(msg) => write!(f, "運行時錯誤 (RE): {msg}"),
-            Self::WA(msg) => write!(f, "答案錯誤 (WA): {msg}"),
-            Self::Tle(cost) => write!(f, "超時錯誤 (TLE): {} ms", cost.as_millis()),
-            Self::Mle(cost) => write!(f, "記憶體超限 (MLE): {cost} KiB"),
-            Self::AC => write!(f, "答案正確 (AC)"),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum CompileError<'a> {
     /// System Error
@@ -157,6 +144,7 @@ pub struct SummaryInfo {
     pub total_memory: usize,
     worse_status: JudgeStatus,
 }
+
 impl Default for SummaryInfo {
     fn default() -> Self {
         Self {
@@ -168,6 +156,7 @@ impl Default for SummaryInfo {
         }
     }
 }
+
 impl SummaryInfo {
     pub fn update(&mut self, verdict: JudgeVerdict) {
         self.current_rounds += 1;
@@ -187,6 +176,7 @@ impl SummaryInfo {
         self.success_rounds * 100 / self.current_rounds
     }
 }
+
 impl fmt::Display for SummaryInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.worse_status {

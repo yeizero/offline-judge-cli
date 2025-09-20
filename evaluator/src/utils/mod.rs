@@ -17,13 +17,6 @@ pub fn center_text(text: &str, total_length: usize, placeholder: &str) -> String
     format!("{left_padding} {text} {right_padding}")
 }
 
-pub fn compare_lines_ignoring_line_endings(a: &str, b: &str) -> bool {
-    let lines_a = a.lines().map(str::trim_end);
-    let lines_b = b.lines().map(str::trim_end);
-
-    lines_a.eq(lines_b)
-}
-
 pub trait PrettyNumber {
     fn prettify(&self) -> String;
 }

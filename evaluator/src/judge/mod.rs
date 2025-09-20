@@ -2,10 +2,12 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
+use crate::judge::comparison::{StyledComparison, compare_styled};
 use crate::judge::verdict::{JudgeStatus, JudgeVerdict, Limitation};
 use crate::monitor::create_memory_monitor;
-use crate::utils::{PrettyNumber, center_text, compare_lines_ignoring_line_endings};
+use crate::utils::{PrettyNumber, center_text};
 
+mod comparison;
 pub mod verdict;
 
 const INFO_SPACE: usize = 30;
@@ -17,7 +19,7 @@ pub fn evaluate<'a>(
     limit: &Limitation,
 ) -> JudgeVerdict<'a> {
     let ans = ans.trim_end();
-    let mut verdict: JudgeVerdict<'a> = JudgeVerdict::new(input, ans);
+    let mut verdict: JudgeVerdict<'a> = JudgeVerdict::new(input);
 
     let mut child = runner
         .stdin(Stdio::piped())
@@ -47,15 +49,20 @@ pub fn evaluate<'a>(
     match output_result {
         Ok(output) => {
             let actual_output = String::from_utf8_lossy(&output.stdout);
-            if compare_lines_ignoring_line_endings(&actual_output, ans) {
-                verdict.status(JudgeStatus::AC)
-            } else if !output.stderr.is_empty() {
-                verdict.status(JudgeStatus::RE(
-                    String::from_utf8_lossy(&output.stderr).into(),
-                ))
-            } else {
-                verdict.status(JudgeStatus::WA(actual_output.to_string()));
-            }
+            match compare_styled(&actual_output, ans) {
+                StyledComparison::Same => {
+                    verdict.status(JudgeStatus::AC);
+                }
+                StyledComparison::Diff(diff) => {
+                    if !output.stderr.is_empty() {
+                        verdict.status(JudgeStatus::RE(
+                            String::from_utf8_lossy(&output.stderr).into(),
+                        ))
+                    } else {
+                        verdict.status(JudgeStatus::WA(diff));
+                    }
+                }
+            };
         }
         Err(e) => verdict.status(JudgeStatus::RE(e.to_string())),
     };
@@ -90,16 +97,16 @@ pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
         JudgeStatus::RE(msg) => println!("❌ [RE] {msg}"),
         JudgeStatus::Tle(_) => println!("❌ [TLE] 程式執行時間超過限制！"),
         JudgeStatus::Mle(_) => println!("❌ [MLE] 程式記憶體使用量超過限制！"),
-        JudgeStatus::WA(response) => {
+        JudgeStatus::WA(diff) => {
             println!("❌ [WA] 答案比對失敗！");
             println!(
-                "\n{}\n{}\n\n{}\n{}\n\n{}\n{}",
+                "\n{}\n{}\n\n{}\n{}\n{}\n{}\n",
                 center_text("Input", INFO_SPACE, "-"),
                 verdict.input,
                 center_text("Program Output", INFO_SPACE, "-"),
-                response,
+                diff.output,
                 center_text("Expect Output", INFO_SPACE, "-"),
-                verdict.answer
+                diff.answer
             );
         }
     };
