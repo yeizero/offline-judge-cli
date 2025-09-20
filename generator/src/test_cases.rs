@@ -1,13 +1,23 @@
-use std::{fmt, fs::File, io::Write};
+use fs_err::File;
+use std::{fmt, io::Write};
 
-use inquire::{error::InquireResult, validator::Validation, CustomType, Editor, InquireError, Select, Text};
+use inquire::{
+    CustomType, Editor, InquireError, Select, Text, error::InquireResult, validator::Validation,
+};
 use owo_colors::OwoColorize;
 
 use crate::{
-    advance::{prompt_advance_options, update_by_advance}, escapable, configure::GeneratorConfig, structs::{CaseInputCompleter, ConfigFile, LabelWithOptionIndex, OptionalInput, TestCase, TestLimit, YamlPathCompleter, OPEN_EDITOR_MAGIC}, utils::{file_path_validator, ESCAPABLE}
+    advanced::{prompt_advanced_options, update_by_advanced},
+    configure::GeneratorConfig,
+    escapable,
+    structs::{
+        CaseInputCompleter, LabelWithOptionIndex, OPEN_EDITOR_MAGIC, OptionalInput, TestCase,
+        TestLimit, TestSuite, YamlPathCompleter,
+    },
+    utils::{ESCAPABLE, file_path_validator},
 };
 
-pub fn generate_test_case(setting: &GeneratorConfig) -> InquireResult<String> {
+pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
     let mut test_cases: Vec<TestCase> = Vec::new();
     let mut test_limit = TestLimit::new();
     let mut id: u32 = 1;
@@ -16,7 +26,9 @@ pub fn generate_test_case(setting: &GeneratorConfig) -> InquireResult<String> {
         .with_validator(with_yaml_path_validator)
         .with_formatter(&|i| with_yaml(i))
         .with_help_message("副檔名為yaml，若沒有會自動補上")
-        .with_autocomplete(YamlPathCompleter::default())
+        .with_autocomplete(
+            YamlPathCompleter::default().supported_code_types(config.supported_code_types.clone()),
+        )
         .prompt()?;
     let file_path = with_yaml(&file);
 
@@ -38,9 +50,7 @@ pub fn generate_test_case(setting: &GeneratorConfig) -> InquireResult<String> {
                     continue
                 )?;
 
-                let test_case = TestCase {
-                    input, answer, id,
-                };
+                let test_case = TestCase { input, answer, id };
                 test_cases.push(test_case);
                 id += 1;
             }
@@ -53,17 +63,25 @@ pub fn generate_test_case(setting: &GeneratorConfig) -> InquireResult<String> {
                             Some(index),
                             format!(
                                 "{} ({}字)",
-                                if case.id == 0 { "外來測資".to_owned() } else { format!("測資 {}", case.id) },
+                                if case.id == 0 {
+                                    "外來測資".to_owned()
+                                } else {
+                                    format!("測資 {}", case.id)
+                                },
                                 case.input.len() + case.answer.len()
                             ),
                         )
                     })
                     .collect();
                 options.push(LabelWithOptionIndex::new(None, "取消".to_owned()));
-                let selection = escapable!(Select::new(
-                    &format!("選擇要刪除的測資 (共 {} 筆):", test_cases.len()), 
-                    options
-                ).prompt(), continue)?;
+                let selection = escapable!(
+                    Select::new(
+                        &format!("選擇要刪除的測資 (共 {} 筆):", test_cases.len()),
+                        options
+                    )
+                    .prompt(),
+                    continue
+                )?;
                 if let Some(index) = selection.index {
                     test_cases.remove(index);
                 };
@@ -77,7 +95,7 @@ pub fn generate_test_case(setting: &GeneratorConfig) -> InquireResult<String> {
                     dialogue = dialogue.with_starting_input(&init_text);
                 }
 
-                let max_time: Option<u64> = escapable!(dialogue.prompt(), continue) ?.value;
+                let max_time: Option<u64> = escapable!(dialogue.prompt(), continue)?.value;
                 test_limit.time = max_time;
             }
             Action::LimitMemory => {
@@ -94,22 +112,20 @@ pub fn generate_test_case(setting: &GeneratorConfig) -> InquireResult<String> {
             }
             Action::Submit => break,
             Action::ListMore => {
-                let config = escapable!(
-                    prompt_advance_options(setting),
-                    continue
-                )?;
-                update_by_advance(config, &mut test_cases, &mut test_limit);
+                let suite = escapable!(prompt_advanced_options(config), continue)?;
+                update_by_advanced(suite, &mut test_cases, &mut test_limit);
             }
         }
     }
 
-    let mut file = File::create(&file_path).expect("創建檔案失敗");
-    let yaml = serde_yml::to_string(&ConfigFile {
-        limit: test_limit.to_option(),
+    let mut file = File::create(&file_path)?;
+    let yaml = serde_yml::to_string(&TestSuite {
+        limit: test_limit.into_option(),
         cases: test_cases,
-    }).unwrap();
+    })
+    .unwrap();
 
-    file.write_all(yaml.as_bytes()).expect("寫入檔案失敗");
+    file.write_all(yaml.as_bytes())?;
 
     println!("{}", format!("成功創建 '{}'", &file_path).green());
 
@@ -179,8 +195,7 @@ fn input_text_or_editor(message: &str) -> Result<String, InquireError> {
         })
         .prompt()?;
     if input == OPEN_EDITOR_MAGIC {
-        Editor::new(message)
-            .prompt()        
+        Editor::new(message).prompt()
     } else {
         Ok(input)
     }

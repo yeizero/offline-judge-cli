@@ -26,24 +26,30 @@ impl<T> FromStr for OptionalInput<T>
 where
     T: FromStr,
 {
-    type Err = <T as FromStr>::Err; 
+    type Err = <T as FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().parse::<T>() {
             Ok(value) => Ok(OptionalInput::new(Some(value))),
-            Err(e) => if s.is_empty() { Ok(OptionalInput::new(None)) } else { Err(e) },
+            Err(e) => {
+                if s.is_empty() {
+                    Ok(OptionalInput::new(None))
+                } else {
+                    Err(e)
+                }
+            }
         }
     }
 }
 
-impl<T> ToString for OptionalInput<T>
+impl<T> fmt::Display for OptionalInput<T>
 where
-    T: ToString,
+    T: fmt::Display,
 {
-    fn to_string(&self) -> String {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.value {
-            Some(v) => v.to_string(),
-            None => "".to_owned(),
+            Some(v) => write!(f, "{}", v),
+            None => write!(f, ""),
         }
     }
 }
@@ -61,8 +67,6 @@ impl fmt::Display for LabelWithOptionIndex {
 
 impl LabelWithOptionIndex {
     pub fn new(index: Option<usize>, label: String) -> Self {
-        Self {
-            label, index
-        }
+        Self { label, index }
     }
 }

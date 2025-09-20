@@ -13,3 +13,5 @@ inquire = { version = "0.7.5", features = ["console", "editor"]}
 owo-colors = "4.2.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yml = "0.0.12"
+anyhow = "1.0.99"
+fs-err = "3.1.2"
