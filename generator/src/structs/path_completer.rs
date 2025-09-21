@@ -26,7 +26,7 @@ impl YamlPathCompleter {
             return Ok(());
         }
 
-        self.input = input.to_owned();
+        self.input = input.to_string();
         self.paths.clear();
 
         let input_path = std::path::PathBuf::from(input);
@@ -70,7 +70,7 @@ impl YamlPathCompleter {
                         path.to_string_lossy()
                             .replace("\\", "/")
                             .trim_start_matches("./")
-                            .to_owned(),
+                            .to_string(),
                     );
                 }
             }

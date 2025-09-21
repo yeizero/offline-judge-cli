@@ -11,7 +11,7 @@ pub struct CaseInputCompleter;
 impl Autocomplete for CaseInputCompleter {
     fn get_suggestions(&mut self, input: &str) -> Result<Vec<String>, CustomUserError> {
         if input.trim().is_empty() {
-            Ok(vec![OPEN_EDITOR_MAGIC.to_owned()])
+            Ok(vec![OPEN_EDITOR_MAGIC.to_string()])
         } else {
             Ok(Vec::new())
         }

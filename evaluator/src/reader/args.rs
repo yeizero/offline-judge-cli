@@ -75,7 +75,7 @@ pub fn resolve_args() -> Result<TestInfo, ReaderError> {
         Some(i) => i,
         None => match Path::new(&args.file).extension() {
             Some(extension) => extension.to_string_lossy().into_owned(),
-            None => "".to_owned(),
+            None => "".to_string(),
         },
     };
 

@@ -64,7 +64,7 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
                             format!(
                                 "{} ({}字)",
                                 if case.id == 0 {
-                                    "外來測資".to_owned()
+                                    "外來測資".to_string()
                                 } else {
                                     format!("測資 {}", case.id)
                                 },
@@ -73,7 +73,7 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
                         )
                     })
                     .collect();
-                options.push(LabelWithOptionIndex::new(None, "取消".to_owned()));
+                options.push(LabelWithOptionIndex::new(None, "取消".to_string()));
                 let selection = escapable!(
                     Select::new(
                         &format!("選擇要刪除的測資 (共 {} 筆):", test_cases.len()),
@@ -174,9 +174,9 @@ fn with_yaml_path_validator(
 
 fn with_yaml(input: &str) -> String {
     if input.trim().is_empty() {
-        "".to_owned()
+        "".to_string()
     } else if input.ends_with(".yaml") || input.ends_with(".yml") {
-        input.to_owned()
+        input.to_string()
     } else {
         format!("{}.yaml", input)
     }
@@ -190,7 +190,7 @@ fn input_text_or_editor(message: &str) -> Result<String, InquireError> {
             if i == OPEN_EDITOR_MAGIC {
                 format!("<{}>", i)
             } else {
-                i.to_owned()
+                i.to_string()
             }
         })
         .prompt()?;

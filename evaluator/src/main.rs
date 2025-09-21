@@ -151,13 +151,13 @@ fn judge(info: TestInfo, mut runner: Command) {
             Cell::new(if verdict.is_accept() { "✅" } else { "❌" }),
             Cell::new(&current_test_round.to_string()),
             Cell::new(&verdict.duration.map_or_else(
-                || "Unknown".to_owned(),
+                || "Unknown".to_string(),
                 |value| value.as_millis().prettify(),
             )),
             Cell::new(
                 &verdict
                     .memory
-                    .map_or_else(|| "Unknown".to_owned(), |value| value.prettify()),
+                    .map_or_else(|| "Unknown".to_string(), |value| value.prettify()),
             ),
             Cell::new(verdict.status.to_str_short()),
         ]));

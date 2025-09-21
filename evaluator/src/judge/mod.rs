@@ -118,7 +118,7 @@ pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
             memory,
             limit
                 .max_memory
-                .map_or_else(|| "無限制".to_owned(), |i| i.prettify())
+                .map_or_else(|| "無限制".to_string(), |i| i.prettify())
         );
     }
     if let Some(duration) = verdict.duration {
@@ -130,7 +130,7 @@ pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
             duration.as_millis(),
             limit
                 .max_time
-                .map_or_else(|| "無限制".to_owned(), |i| i.as_millis().prettify())
+                .map_or_else(|| "無限制".to_string(), |i| i.as_millis().prettify())
         );
     }
 }

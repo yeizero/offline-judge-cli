@@ -74,7 +74,7 @@ pub fn file_path_validator(
 ) -> Result<Validation, Box<dyn std::error::Error + Send + Sync>> {
     if input.is_empty() {
         return Ok(Validation::Invalid(ErrorMessage::Custom(
-            "請輸入檔案名稱".to_owned(),
+            "請輸入檔案名稱".to_string(),
         )));
     }
     match test_create_file(&input) {
@@ -85,7 +85,7 @@ pub fn file_path_validator(
             &input
         )))),
         status => Ok(Validation::Invalid(ErrorMessage::Custom(
-            status.to_str().to_owned(),
+            status.to_str().to_string(),
         ))),
     }
 }

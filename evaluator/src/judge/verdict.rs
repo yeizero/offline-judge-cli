@@ -43,7 +43,7 @@ pub struct JudgeVerdict<'a> {
 impl<'a> JudgeVerdict<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
-            status: JudgeStatus::RE("Failed".to_owned()),
+            status: JudgeStatus::RE("Failed".to_string()),
             input,
             duration: None,
             memory: None,
