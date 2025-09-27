@@ -64,9 +64,9 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
                             format!(
                                 "{} ({}字)",
                                 if case.id == 0 {
-                                    "外來測資".to_string()
+                                    format_args!("外來測資")
                                 } else {
-                                    format!("測資 {}", case.id)
+                                    format_args!("測資 {}", case.id)
                                 },
                                 case.input.len() + case.answer.len()
                             ),
@@ -127,7 +127,7 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
 
     file.write_all(yaml.as_bytes())?;
 
-    println!("{}", format!("成功創建 '{}'", &file_path).green());
+    println!("{}", format_args!("成功創建 '{}'", &file_path).green());
 
     Ok(file_path)
 }
@@ -195,7 +195,9 @@ fn input_text_or_editor(message: &str) -> Result<String, InquireError> {
         })
         .prompt()?;
     if input == OPEN_EDITOR_MAGIC {
-        Editor::new(message).prompt()
+        Editor::new(message)
+            // .with_editor_command(OsStr::new("vim"))
+            .prompt()
     } else {
         Ok(input)
     }

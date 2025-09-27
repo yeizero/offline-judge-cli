@@ -2,9 +2,8 @@ import requests
 from bs4 import BeautifulSoup
 import re
 
-def ask(*values):
-    print("/ask", *values)
-    return input("")
+def ask(content):
+    return input(f"/ask {content}\n")
 
 print("/info ZeroJudge範例測資抓取")
 

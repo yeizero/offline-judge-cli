@@ -1,20 +1,22 @@
+use std::borrow::Cow;
+
 use num_format::ToFormattedString;
 
 use crate::config::NUMBER_FORMAT;
 
 pub const TEMP_FILE_EXE: &str = "output.exe";
 
-pub fn center_text(text: &str, total_length: usize, placeholder: &str) -> String {
+pub fn center_text<'a>(text: &'a str, total_length: usize, placeholder: &'a str) -> Cow<'a, str> {
     let text_length = text.len();
     if text_length >= total_length {
-        return text.to_string();
+        return Cow::Borrowed(text);
     }
 
     let padding_length = (total_length - text_length) / 2;
     let left_padding = placeholder.repeat(padding_length);
     let right_padding = placeholder.repeat(total_length - text_length - padding_length);
 
-    format!("{left_padding} {text} {right_padding}")
+    Cow::Owned(format!("{left_padding} {text} {right_padding}"))
 }
 
 pub trait PrettyNumber {

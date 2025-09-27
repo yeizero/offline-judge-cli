@@ -108,7 +108,7 @@ macro_rules! error {
     ($name:expr, $fmt:literal, $($arg:expr),+) => {
         println!(
             "{}",
-            format!(concat!("! {}: ", $fmt), $name, $($arg),*).red()
+            format_args!(concat!("! {}: ", $fmt), $name, $($arg),*).red()
         )
     };
 
@@ -116,7 +116,7 @@ macro_rules! error {
     ($name:expr, $msg:expr) => {
         println!(
             "{}",
-            format!("! {}: {}", $name, $msg).red()
+            format_args!("! {}: {}", $name, $msg).red()
         )
     };
 
@@ -124,7 +124,7 @@ macro_rules! error {
     ($fmt:literal, $($arg:expr),+) => {
         println!(
             "{}",
-            format!(concat!("! 錯誤: ", $fmt), $($arg),*).red()
+            format_args!(concat!("! 錯誤: ", $fmt), $($arg),*).red()
         )
     };
 
@@ -132,7 +132,7 @@ macro_rules! error {
     ($msg:expr) => {
         println!(
             "{}",
-            format!("! 錯誤: {}", $msg).red()
+            format_args!("! 錯誤: {}", $msg).red()
         )
     };
 }
@@ -143,7 +143,7 @@ macro_rules! warn {
     ($name:expr, $fmt:literal, $($arg:expr),+) => {
         println!(
             "{}",
-            format!(concat!("! {}: ", $fmt), $name, $($arg),*).yellow()
+            format_args!(concat!("! {}: ", $fmt), $name, $($arg),*).yellow()
         );
     };
 
@@ -151,7 +151,7 @@ macro_rules! warn {
     ($name:expr, $msg:expr) => {
         println!(
             "{}",
-            format!("! {}: {}", $name, $msg).yellow()
+            format_args!("! {}: {}", $name, $msg).yellow()
         );
     };
 
@@ -159,7 +159,7 @@ macro_rules! warn {
     ($fmt:literal, $($arg:expr),+) => {
         println!(
             "{}",
-            format!(concat!("! 警告: ", $fmt), $($arg),*).yellow()
+            format_args!(concat!("! 警告: ", $fmt), $($arg),*).yellow()
         );
     };
 
@@ -167,7 +167,7 @@ macro_rules! warn {
     ($msg:expr) => {
         println!(
             "{}",
-            format!("! 警告: {}", $msg).yellow()
+            format_args!("! 警告: {}", $msg).yellow()
         );
     };
 }
@@ -178,7 +178,7 @@ macro_rules! info {
     ($fmt:literal, $($arg:expr),+) => {
         println!(
             "{}",
-            format!(concat!("! ", $fmt), $($arg),*).bright_blue()
+            format_args!(concat!("! ", $fmt), $($arg),*).bright_blue()
         );
     };
 
@@ -186,7 +186,7 @@ macro_rules! info {
     ($msg:expr) => {
         println!(
             "{}",
-            format!("! {}", $msg).bright_blue()
+            format_args!("! {}", $msg).bright_blue()
         );
     };
 }

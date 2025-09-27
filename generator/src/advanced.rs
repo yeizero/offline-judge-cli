@@ -11,23 +11,22 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::process::Stdio;
 
 pub fn prompt_advanced_options(
-    setting: &GeneratorConfig,
+    config: &GeneratorConfig,
 ) -> Result<Option<TestSuite>, InquireError> {
-    let mut options = Vec::new();
+    let mut options = Vec::with_capacity(1 + config.plugins.as_ref().map_or(0, |p| p.len()));
+    options.push(Action::Cancel);
 
-    if let Some(plugins) = setting.plugins.as_ref() {
+    if let Some(plugins) = config.plugins.as_ref() {
         options.extend(plugins.iter().map(Action::External));
     }
 
-    options.insert(0, Action::Cancel);
-
     let action = Select::new("選擇進階選項:", options).prompt()?;
 
-    let Action::External(ext) = action else {
+    let Action::External(plugin) = action else {
         return Ok(None);
     };
     let status = Confirm::new("你即將執行外部指令，是否信任?")
-        .with_help_message(&with_ellipsis(&ext.command, 60))
+        .with_help_message(&with_ellipsis(&plugin.command, 60))
         .with_default(true)
         .with_render_config(
             RenderConfig::default()
@@ -38,11 +37,10 @@ pub fn prompt_advanced_options(
         return Ok(None);
     }
 
-    // let program = &ext.command[0];
     // SAFE `unwrap`: `plugins` are retrieved from config, which is loaded via exe_dir.
     let exe_path = get_exe_dir().unwrap();
 
-    let mut child = build_native_shell_command(&ext.command)?
+    let mut child = build_native_shell_command(&plugin.command)?
         .current_dir(exe_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -104,7 +102,7 @@ pub fn prompt_advanced_options(
                     return Ok(None)
                 )?;
                 text.push('\n');
-                stdin.write_all(text.as_bytes())?
+                stdin.write_all(text.as_bytes())?;
             }
             "confirm" => {
                 let status = escapable!(
@@ -113,7 +111,7 @@ pub fn prompt_advanced_options(
                         .prompt(),
                     return Ok(None)
                 )?;
-                stdin.write_all(&[status as u8 + b'0', b'\n'])?
+                stdin.write_all(&[status as u8 + b'0', b'\n'])?;
             }
             "info" => {
                 info!(content.unwrap_or_default());
@@ -123,6 +121,23 @@ pub fn prompt_advanced_options(
             }
             "error" => {
                 error!(content.unwrap_or_default());
+            }
+            "config" => {
+                let mut args = content.unwrap_or_default().splitn(2, char::is_whitespace);
+                let method = args.next().unwrap_or_default().trim();
+                let key = args.next().unwrap_or_default();
+
+                if method == "read" {
+                    let value: &str = plugin
+                        .config
+                        .get(key)
+                        .map(|s| s.as_str())
+                        .unwrap_or_default();
+                    stdin.write_all(value.as_bytes())?;
+                } else {
+                    warn!("外部程式", "忽略未知操作 'config {}'", method);
+                }
+                stdin.write_all(b"\n")?
             }
             "result" => {
                 after_result = true;

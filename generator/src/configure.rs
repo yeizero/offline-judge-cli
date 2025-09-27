@@ -1,7 +1,7 @@
+use fs_err as fs;
 use serde::Deserialize;
 use shared::get_config_path;
-use std::env;
-use fs_err as fs;
+use std::{collections::HashMap, env};
 
 pub fn read_config() -> anyhow::Result<GeneratorConfig> {
     let config_path = get_config_path()?;
@@ -55,6 +55,8 @@ pub struct GeneratorConfig {
 pub struct Plugin {
     pub name: String,
     pub command: String,
+    #[serde(default)]
+    pub config: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]

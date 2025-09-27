@@ -4,16 +4,17 @@
 - /info <...message...>
 - /warn <...message...>
 - /error <...message...>
-- /result -> see # result format
+- /result -> enter result mode. see # result format
+- /config read < key > -> text value or empty text if the key does not exist
 
 # result format
-`key` `lines`
-`lines of content`
+`key` `line_count`
+`content spread across line_count lines`
 
 ## note
 After using /result, the following content you print will belong to result.
 Available `key`s: limit, input, answer
-`lines` is positive integer
+`line_count` is positive integer
 
 ## template
 limit 2

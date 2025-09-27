@@ -12,7 +12,7 @@ pub struct TestSuite {
 pub struct TestCase {
     pub input: String,
     pub answer: String,
-    
+
     #[serde(skip_serializing)]
     pub id: u32,
 }
@@ -55,7 +55,7 @@ pub fn parse_easy_test_suite(input: &str) -> TestSuite {
         if parts.len() != 2 {
             eprintln!(
                 "{}",
-                format!("[Parse] 錯誤格式（應為 `key 行數`）: `{}`", header).red()
+                format_args!("[Parse] 錯誤格式（應為 `key 行數`）: `{}`", header).red()
             );
             continue;
         }
@@ -64,7 +64,10 @@ pub fn parse_easy_test_suite(input: &str) -> TestSuite {
         let count = match parts[1].parse::<usize>() {
             Ok(c) => c,
             Err(_) => {
-                eprintln!("{}", format!("[Parse] 行數無法解析於: `{}`", header).red());
+                eprintln!(
+                    "{}",
+                    format_args!("[Parse] 行數無法解析於: `{}`", header).red()
+                );
                 continue;
             }
         };
@@ -76,8 +79,8 @@ pub fn parse_easy_test_suite(input: &str) -> TestSuite {
                 None => {
                     eprintln!(
                         "{}",
-                        format!(
-                            "[Parse] 期待 {} 行，但只取得 {} 行，在 key `{}`",
+                        format_args!(
+                            "[Parse] 預期 {} 行，但只取得 {} 行，在 key `{}`",
                             count, i, key
                         )
                         .red()
@@ -109,19 +112,22 @@ pub fn parse_easy_test_suite(input: &str) -> TestSuite {
                         ["time", val] => match val.parse::<u64>() {
                             Ok(ms) => limit.time = Some(ms),
                             Err(_) => {
-                                eprintln!("{}", format!("[Parse] 時間格式錯誤: `{}`", val).red())
+                                eprintln!("{}", format_args!("[Parse] 時間格式錯誤: `{val}`").red())
                             }
                         },
                         ["memory", val] => match val.parse::<u32>() {
                             Ok(mem) => limit.memory = Some(mem),
                             Err(_) => {
-                                eprintln!("{}", format!("[Parse] 記憶體格式錯誤: `{}`", val).red())
+                                eprintln!(
+                                    "{}",
+                                    format_args!("[Parse] 記憶體格式錯誤: `{val}`").red()
+                                )
                             }
                         },
                         _ => {
                             eprintln!(
                                 "{}",
-                                format!("[Parse] limit 欄位未知格式: {:?}", chunk).red()
+                                format_args!("[Parse] limit 欄位未知格式: {chunk:?}").red()
                             );
                         }
                     }
@@ -130,7 +136,7 @@ pub fn parse_easy_test_suite(input: &str) -> TestSuite {
             "input" => inputs.push_back(joined),
             "answer" => answers.push_back(joined),
             other => {
-                eprintln!("{}", format!("[Parse] 忽略未知 key `{}`", other).red());
+                eprintln!("{}", format_args!("[Parse] 忽略未知 key `{other}`").red());
             }
         }
     }
