@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
-    "evaluator",
-    "generator",
+    "oj-evaluator",
+    "oj-generator",
     "editor",
     "shared"
 ]

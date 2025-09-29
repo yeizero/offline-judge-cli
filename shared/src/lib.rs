@@ -4,6 +4,8 @@ use std::io;
 use std::process::Command;
 use std::{env, path::PathBuf};
 
+pub mod bridge;
+
 pub fn get_exe_dir() -> io::Result<PathBuf> {
     if cfg!(debug_assertions) {
         // debug

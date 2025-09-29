@@ -1,5 +1,5 @@
 use code_file::generate_code_file;
-use configure::{apply_config, read_config};
+use configure::read_config;
 use inquire::{InquireError, error::InquireResult};
 use owo_colors::OwoColorize;
 use test_cases::generate_test_case;
@@ -17,7 +17,6 @@ fn main() {
         warn!("錯誤，已忽略設置檔案", e);
     }
     let config = config_result.unwrap_or_default();
-    apply_config(&config);
 
     let judge_config_path_option = resolve_inquire_error(generate_test_case(&config));
     if let Some(judge_config_path) = judge_config_path_option {

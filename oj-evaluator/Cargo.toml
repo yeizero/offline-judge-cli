@@ -1,5 +1,5 @@
 [package]
-name = "evaluator"
+name = "oj-evaluator"
 version = "0.2.3"
 edition = "2024"
 

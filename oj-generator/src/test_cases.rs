@@ -1,5 +1,12 @@
 use fs_err::File;
-use std::{fmt, io::Write};
+use shared::bridge::write_keymap_to_file;
+use std::{
+    ffi::OsStr,
+    fmt,
+    io::Write,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use inquire::{
     CustomType, Editor, InquireError, Select, Text, error::InquireResult, validator::Validation,
@@ -8,7 +15,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     advanced::{prompt_advanced_options, update_by_advanced},
-    configure::GeneratorConfig,
+    configure::{EditorChoice, GeneratorConfig},
     escapable,
     structs::{
         CaseInputCompleter, LabelWithOptionIndex, OPEN_EDITOR_MAGIC, OptionalInput, TestCase,
@@ -42,11 +49,11 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
         match action {
             Action::Add => {
                 let input = escapable!(
-                    input_text_or_editor(&format!("測資 {} 輸入:", id)),
+                    input_text_or_editor(config, &format!("測資 {} 輸入:", id)),
                     continue
                 )?;
                 let answer = escapable!(
-                    input_text_or_editor(&format!("測資 {} 答案:", id)),
+                    input_text_or_editor(config, &format!("測資 {} 答案:", id)),
                     continue
                 )?;
 
@@ -182,7 +189,10 @@ fn with_yaml(input: &str) -> String {
     }
 }
 
-fn input_text_or_editor(message: &str) -> Result<String, InquireError> {
+fn input_text_or_editor(
+    config: &GeneratorConfig,
+    message: &str,
+) -> Result<String, InquireError> {
     let input = Text::new(message)
         .with_autocomplete(CaseInputCompleter)
         .with_help_message(ESCAPABLE)
@@ -195,9 +205,49 @@ fn input_text_or_editor(message: &str) -> Result<String, InquireError> {
         })
         .prompt()?;
     if input == OPEN_EDITOR_MAGIC {
-        Editor::new(message)
-            // .with_editor_command(OsStr::new("vim"))
-            .prompt()
+        let mut editor = Editor::new(message);
+        let mut config_path: Option<PathBuf> = None;
+
+        match &config.editor {
+            EditorChoice::Local(editor_config) => {
+                editor = editor.with_editor_command(OsStr::new("editor"));
+
+                if let Some(keymap) = &editor_config.keymap {
+                    let mut path: PathBuf = env::temp_dir();
+                    let filename = format!(
+                        "OJC-E-{}",
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos()
+                    );
+                    path.push(filename);
+
+                    unsafe {
+                        write_keymap_to_file(&path, keymap)
+                            .map_err(|e| InquireError::Custom(e.into_boxed_dyn_error()))?
+                    };
+
+                    config_path = Some(path);
+                }
+            }
+            EditorChoice::Other(command) => {
+                editor = editor.with_editor_command(OsStr::new(command));
+            }
+        };
+
+        #[allow(clippy::manual_map)] // ownership problem
+        let args = if let Some(path) = &config_path {
+            Some(&[OsStr::new("--input-fast"), path.as_os_str()])
+        } else {
+            None
+        };
+
+        if let Some(args) = args {
+            editor = editor.with_args(args);
+        }
+
+        editor.prompt()
     } else {
         Ok(input)
     }

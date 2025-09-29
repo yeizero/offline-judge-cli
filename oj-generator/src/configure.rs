@@ -1,25 +1,13 @@
 use fs_err as fs;
 use serde::Deserialize;
-use shared::get_config_path;
-use std::{collections::HashMap, env};
+use shared::{bridge::KeyMapListProtocal, get_config_path};
+use std::collections::HashMap;
 
 pub fn read_config() -> anyhow::Result<GeneratorConfig> {
     let config_path = get_config_path()?;
     let config_contents = fs::read_to_string(&config_path)?;
     let root: ConfigRoot = serde_yml::from_str(&config_contents)?;
     Ok(root.into_config())
-}
-
-/// MUST be called in the single thread
-pub fn apply_config(config: &GeneratorConfig) {
-    if let Some(editor) = &config.editor
-        && !editor.is_empty()
-    {
-        // SAFETY: Called before any threads are spawned, in the single-threaded init phase.
-        unsafe {
-            env::set_var("EDITOR", editor);
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,10 +33,29 @@ impl ConfigRoot {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct GeneratorConfig {
-    pub editor: Option<String>,
+    #[serde(default)]
+    pub editor: EditorChoice,
     pub plugins: Option<Vec<Plugin>>,
     #[serde(skip_deserializing, default)]
     pub supported_code_types: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum EditorChoice {
+    Local(EditorConfig),
+    Other(String),
+}
+
+impl Default for EditorChoice {
+    fn default() -> Self {
+        Self::Local(EditorConfig::default())
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct EditorConfig {
+    pub keymap: Option<KeyMapListProtocal>,
 }
 
 #[derive(Debug, Deserialize)]
