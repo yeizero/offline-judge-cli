@@ -10,7 +10,6 @@ argh = { version = "0.1.13", default-features = false, features = ["serde"] }
 bit-set = "0.8.0"
 crossterm = "0.29.0"
 either = "1.15.0"
-maplit = "1.0.2"
 ropey = "1.6.1"
 unicode-segmentation = "1.12.0"
 unicode-width = "0.2.1"

@@ -66,6 +66,10 @@ impl Editor {
     const LINE_NUMBER_WIDTH: usize = 7; // "XXXX │ " (4 digits + space + | + space)
     const STATUS_BAR_HEIGHT: u16 = 1;
 
+    //================================================================
+    // Public API & Core Lifecycle
+    //================================================================
+
     /// create with empty rope
     pub fn new() -> Self {
         Self::from_rope(Rope::new())
@@ -91,306 +95,10 @@ impl Editor {
         }
     }
 
-    fn rebuild_height_cache(&mut self) {
-        self.cumulative_visual_heights.clear();
-        self.cumulative_visual_heights.push(0);
-        if self.text.len_lines() == 0 {
-            return;
-        }
-        let mut total_height: u32 = 0;
-        for i in 0..self.text.len_lines() {
-            let line_height = max(
-                1,
-                self.text
-                    .line(i)
-                    .chunk_by_width_cjk(self.content_width())
-                    .count(),
-            ) as u32;
-            total_height += line_height;
-            self.cumulative_visual_heights.push(total_height);
-        }
-    }
-
-    fn update_height_cache(
-        &mut self,
-        start_line: usize,
-        old_line_count: usize,
-        new_line_count: usize,
-    ) -> i64 {
-        if self.text.len_lines() == 0 {
-            self.cumulative_visual_heights = vec![0];
-            return 0;
-        }
-
-        let old_span_height = self.cumulative_visual_heights[start_line + old_line_count]
-            - self.cumulative_visual_heights[start_line];
-
-        let mut new_heights = Vec::with_capacity(new_line_count);
-        let mut new_span_height: u32 = 0;
-        for i in 0..new_line_count {
-            let line_idx = start_line + i;
-            let h = max(
-                1,
-                self.text
-                    .line(line_idx)
-                    .chunk_by_width_cjk(self.content_width())
-                    .count(),
-            ) as u32;
-            new_heights.push(h);
-            new_span_height += h;
-        }
-
-        let delta = new_span_height as i64 - old_span_height as i64;
-
-        let mut new_cumulative_heights = Vec::with_capacity(new_line_count);
-        let mut current_cumulative = self.cumulative_visual_heights[start_line];
-        for h in new_heights {
-            current_cumulative += h;
-            new_cumulative_heights.push(current_cumulative);
-        }
-
-        self.cumulative_visual_heights.splice(
-            start_line + 1..start_line + 1 + old_line_count,
-            new_cumulative_heights,
-        );
-
-        if delta != 0 {
-            for i in (start_line + 1 + new_line_count)..self.cumulative_visual_heights.len() {
-                self.cumulative_visual_heights[i] =
-                    (self.cumulative_visual_heights[i] as i64 + delta) as u32;
-            }
-        }
-
-        delta
-    }
-
-    fn get_selection_range(&self) -> Option<(usize, usize)> {
-        self.selection_anchor.map(|anchor| {
-            if self.cursor < anchor {
-                (self.cursor, anchor)
-            } else {
-                (anchor, self.cursor)
-            }
-        })
-    }
-
-    fn char_idx_to_visual_pos_in_line(
-        &self,
-        line_idx: usize,
-        char_offset: usize,
-    ) -> (usize, usize) {
-        let line = self.text.line(line_idx);
-        let content_width = self.content_width();
-        let mut visual_x = 0;
-        let mut visual_y = 0;
-        for (i, ch) in line.chars().enumerate() {
-            if i >= char_offset {
-                break;
-            }
-            let w = ch.width_cjk().unwrap_or(1);
-            if visual_x + w > content_width {
-                visual_y += 1;
-                visual_x = w;
-            } else {
-                visual_x += w;
-            }
-        }
-        (visual_x, visual_y)
-    }
-
-    fn visual_pos_to_char_idx_in_line(
-        &self,
-        line_idx: usize,
-        target_vx: usize,
-        target_vy: usize,
-    ) -> usize {
-        let line = self.text.line(line_idx);
-        let content_width = self.content_width();
-        let mut current_vx = 0;
-        let mut current_vy = 0;
-        let mut last_char_idx = 0;
-        for (i, ch) in line.chars().enumerate() {
-            if current_vy > target_vy {
-                return last_char_idx;
-            }
-            last_char_idx = i;
-            let w = ch.width_cjk().unwrap_or(1);
-            if current_vy == target_vy && current_vx >= target_vx {
-                return i;
-            }
-            if current_vx + w > content_width {
-                current_vy += 1;
-                current_vx = w;
-            } else {
-                current_vx += w;
-            }
-        }
-        line.len_chars_without_ending()
-    }
-
-    fn logical_to_absolute_visual(&self, offset: ScrollOffset) -> u32 {
-        // 獲取該邏輯行之前所有行的總視覺高度
-        let height_before = self.get_total_visual_height_between(0, offset.logical_line);
-        height_before + offset.visual_offset_in_line as u32
-    }
-
-    fn absolute_visual_to_logical(&self, abs_visual_y: u32) -> ScrollOffset {
-        // 處理邊界情況：如果文件為空或 Y 為 0
-        if self.text.len_lines() == 0 || abs_visual_y == 0 {
-            return ScrollOffset::default();
-        }
-
-        // 使用二分搜尋在 `cumulative_visual_heights` 中快速定位邏輯行。
-        // `binary_search` 會找到第一個 `>` 或 `==` 目標值的位置。
-        // `partition_point` 在這種情況下更直觀：找到第一個 `>` 目標值的位置。
-        let logical_line = self
-            .cumulative_visual_heights
-            .partition_point(|&h| h <= abs_visual_y)
-            .saturating_sub(1); // partition_point 返回的是插入點，所以減1才是目標區間
-
-        // 確保找到的行號不會越界
-        let logical_line = logical_line.min(self.text.len_lines() - 1);
-
-        // 獲取該邏輯行之前的總視覺高度
-        let height_before = self.get_total_visual_height_between(0, logical_line);
-
-        // 計算在該邏輯行內的視覺偏移
-        let visual_offset_in_line = abs_visual_y.saturating_sub(height_before) as usize;
-
-        ScrollOffset {
-            logical_line,
-            visual_offset_in_line,
-        }
-    }
-
-    fn screen_to_char_idx(&self, screen_x: u16, screen_y: u16) -> Option<usize> {
-        if screen_y >= self.content_height() {
-            return None; // 點擊在狀態列或下方
-        }
-
-        // --- Y 軸轉換 (此部分邏輯正確，保持不變) ---
-        let screen_top_abs_y = self.logical_to_absolute_visual(self.scroll_offset);
-        let target_abs_y = screen_top_abs_y + screen_y as u32;
-        let target_logical_pos = self.absolute_visual_to_logical(target_abs_y);
-        let logical_line_idx = target_logical_pos.logical_line;
-
-        if logical_line_idx >= self.text.len_lines() {
-            return Some(self.text.len_chars());
-        }
-
-        // --- X 軸轉換 (重寫此部分邏輯) ---
-        let line = self.text.line(logical_line_idx);
-        let line_start_char_idx = self.text.line_to_char(logical_line_idx);
-        let content_width = self.content_width();
-
-        if (screen_x as usize) < Self::LINE_NUMBER_WIDTH {
-            return Some(line_start_char_idx); // 點擊行號，定位到行首
-        }
-        let target_visual_x = (screen_x as usize).saturating_sub(Self::LINE_NUMBER_WIDTH);
-
-        let mut current_visual_y = 0;
-        let mut current_visual_x = 0;
-
-        for (char_offset, ch) in line.chars().enumerate() {
-            // 檢查是否已到達目標視覺行
-            if current_visual_y == target_logical_pos.visual_offset_in_line {
-                // 在目標視覺行內，尋找 X 座標
-                // 比較 ch 的中點，使用者體驗更好
-                let char_width = ch.width_cjk().unwrap_or(1);
-                if current_visual_x + char_width / 2 >= target_visual_x {
-                    return Some(line_start_char_idx + char_offset);
-                }
-            }
-
-            // --- 無條件地、為每個字元更新視覺佈局 ---
-            let char_width = ch.width_cjk().unwrap_or(1);
-            if current_visual_x + char_width > content_width {
-                // 換行
-                current_visual_y += 1;
-                current_visual_x = char_width;
-            } else {
-                // 不換行
-                current_visual_x += char_width;
-            }
-
-            // 如果當前字元是換行符，迴圈會自然結束
-            if ch == '\n' {
-                break;
-            }
-        }
-
-        // 如果遍歷完畢 (點擊在行尾空白處)，將游標定位到該邏輯行的內容末尾
-        Some(line_start_char_idx + line.len_chars_without_ending())
-    }
-
-    fn handle_selection(&mut self, in_selection: bool) {
-        if in_selection {
-            if self.selection_anchor.is_none() {
-                self.selection_anchor = Some(self.cursor);
-            }
-        } else {
-            if let Some((start_char, end_char)) = self.get_selection_range() {
-                let start_line = self.text.char_to_line(start_char);
-                let end_line = self.text.char_to_line(end_char);
-                self.dirty_lines.mark(start_line..=end_line);
-            }
-            self.selection_anchor = None;
-        }
-    }
-
-    fn copy_selection_to_clipboard(&mut self) -> Result<()> {
-        if let Some((start, end)) = self.get_selection_range() {
-            Clipboard::new()?.set_text(self.text.slice(start..end).to_string())?;
-        }
-        Ok(())
-    }
-
-    fn delete_selection(&mut self) -> Option<(usize, usize)> {
-        if let Some((start, end)) = self.get_selection_range() {
-            let start_line = self.text.char_to_line(start);
-            let end_line = self.text.char_to_line(end);
-            let old_line_count = end_line - start_line + 1;
-
-            self.text.remove(start..end);
-
-            self.cursor = start;
-
-            self.selection_anchor = None;
-
-            return Some((start_line, old_line_count));
-        }
-        None
-    }
-
-    fn paste_from_clipboard(&mut self) -> Result<Option<(usize, usize, usize)>> {
-        let old_line_count = self.delete_selection().map(|i| i.1).unwrap_or(1);
-
-        let text_to_paste = match Clipboard::new()?.get_text() {
-            Ok(text) => text,
-            Err(_) => return Ok(None),
-        };
-
-        if text_to_paste.is_empty() {
-            return Ok(None);
-        }
-
-        let start_line = self.text.char_to_line(self.cursor);
-
-        let inserted_char_count = text_to_paste.chars().count();
-        self.text.insert(self.cursor, &text_to_paste);
-
-        self.cursor += inserted_char_count;
-
-        let num_newlines_in_paste = text_to_paste.chars().filter(|&c| c == '\n').count();
-        let new_line_count = num_newlines_in_paste + 1;
-
-        Ok(Some((start_line, old_line_count, new_line_count)))
-    }
-
     pub fn run(&mut self) -> Result<()> {
         execute!(self.stdout, EnterAlternateScreen, EnableMouseCapture)?;
-
         terminal::enable_raw_mode()?;
+
         self.rebuild_height_cache();
 
         while !self.should_quit {
@@ -418,6 +126,14 @@ impl Editor {
         execute!(self.stdout, LeaveAlternateScreen, DisableMouseCapture)?;
         Ok(())
     }
+
+    pub fn text(&self) -> &Rope {
+        &self.text
+    }
+
+    //================================================================
+    // Main Loop Internals (Event Handling)
+    //================================================================
 
     fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
@@ -820,127 +536,9 @@ impl Editor {
         })
     }
 
-    fn curor_move_up(&mut self) {
-        let y = self.text.char_to_line(self.cursor);
-        let start_idx = self.text.line_to_char(y);
-        let x_offset = self.cursor - start_idx;
-        let (vx, vy) = self.char_idx_to_visual_pos_in_line(y, x_offset);
-        let target_vx = *self.tmp_x.get_or_insert(vx);
-
-        if vy > 0 {
-            let new_offset = self.visual_pos_to_char_idx_in_line(y, target_vx, vy - 1);
-            self.cursor = start_idx + new_offset;
-        } else if y > 0 {
-            let prev_line_height = self.get_visual_height_for_line(y - 1);
-            let target_vy = if prev_line_height > 0 {
-                prev_line_height - 1
-            } else {
-                0
-            };
-            let prev_start_idx = self.text.line_to_char(y - 1);
-            let new_offset =
-                self.visual_pos_to_char_idx_in_line(y - 1, target_vx, target_vy as usize);
-            self.cursor = prev_start_idx + new_offset;
-        }
-    }
-
-    fn cursor_move_down(&mut self) {
-        let y = self.text.char_to_line(self.cursor);
-        let start_idx = self.text.line_to_char(y);
-        let x_offset = self.cursor - start_idx;
-        let (vx, vy) = self.char_idx_to_visual_pos_in_line(y, x_offset);
-        let current_line_height = self.get_visual_height_for_line(y);
-        let target_vx = *self.tmp_x.get_or_insert(vx);
-
-        if vy < current_line_height as usize - 1 {
-            let new_offset = self.visual_pos_to_char_idx_in_line(y, target_vx, vy + 1);
-            self.cursor = start_idx + new_offset;
-        } else if y < self.text.len_lines().saturating_sub(1) {
-            let next_start_idx = self.text.line_to_char(y + 1);
-            let new_offset = self.visual_pos_to_char_idx_in_line(y + 1, target_vx, 0);
-            self.cursor = next_start_idx + new_offset;
-        }
-    }
-
-    fn content_width(&self) -> usize {
-        let w = (self.terminal_width as usize)
-            .saturating_sub(Self::LINE_NUMBER_WIDTH)
-            .saturating_sub(1);
-        if w == 0 { 1_000_000_000 } else { w }
-    }
-
-    fn content_height(&self) -> u16 {
-        self.terminal_height.saturating_sub(Self::STATUS_BAR_HEIGHT)
-    }
-
-    fn get_total_visual_height_between(&self, start: usize, end: usize) -> u32 {
-        if end >= self.cumulative_visual_heights.len() || start > end {
-            return 0;
-        }
-        self.cumulative_visual_heights[end] - self.cumulative_visual_heights[start]
-    }
-
-    fn get_visual_height_for_line(&self, line_idx: usize) -> u16 {
-        if line_idx + 1 >= self.cumulative_visual_heights.len() {
-            return 1;
-        }
-        (self.cumulative_visual_heights[line_idx + 1] - self.cumulative_visual_heights[line_idx])
-            as u16
-    }
-
-    fn scroll_to_cursor(&mut self) {
-        let old_offset = self.scroll_offset;
-        let content_height = self.content_height() as u32;
-        if content_height == 0 {
-            return;
-        }
-
-        // 1. 計算游標的絕對視覺 Y
-        let cursor_logical_y = self.text.char_to_line(self.cursor);
-        let start_of_line_char_idx = self.text.line_to_char(cursor_logical_y);
-        let (_, visual_offset_in_line) = self
-            .char_idx_to_visual_pos_in_line(cursor_logical_y, self.cursor - start_of_line_char_idx);
-        let cursor_abs_y = self.logical_to_absolute_visual(ScrollOffset {
-            logical_line: cursor_logical_y,
-            visual_offset_in_line,
-        });
-
-        // 2. 計算當前螢幕的絕對視覺邊界
-        let screen_top_abs_y = self.logical_to_absolute_visual(self.scroll_offset);
-        let screen_bottom_abs_y = screen_top_abs_y + content_height - 1;
-
-        // 3. 決定新的螢幕頂部絕對視覺 Y
-        let new_top_abs_y;
-        if cursor_abs_y < screen_top_abs_y {
-            // 硬性捲動：游標在上方
-            new_top_abs_y = cursor_abs_y;
-        } else if cursor_abs_y > screen_bottom_abs_y {
-            // 硬性捲動：游標在下方
-            new_top_abs_y = cursor_abs_y - content_height + 1;
-        } else {
-            // 軟性捲動
-            let middle_offset = content_height / 2;
-            let ideal_top_abs_y = cursor_abs_y.saturating_sub(middle_offset);
-            let total_doc_visual_height =
-                self.get_total_visual_height_between(0, self.text.len_lines());
-            let remaining_height = total_doc_visual_height.saturating_sub(ideal_top_abs_y);
-
-            if remaining_height < content_height {
-                // 貼底邏輯
-                new_top_abs_y = total_doc_visual_height.saturating_sub(content_height);
-            } else {
-                // 置中邏輯
-                new_top_abs_y = ideal_top_abs_y;
-            }
-        }
-
-        // 4. 將新的絕對視覺 Y 轉換回 ScrollOffset 並更新狀態
-        let final_offset = self.absolute_visual_to_logical(new_top_abs_y);
-        self.scroll_offset = final_offset;
-        if self.scroll_offset != old_offset {
-            self.full_redraw_request = true;
-        }
-    }
+    //================================================================
+    // Drawing & Rendering
+    //================================================================
 
     fn draw_updates(&mut self) -> Result<()> {
         let first_visible_line = self.scroll_offset.logical_line;
@@ -984,24 +582,6 @@ impl Editor {
 
         self.cleanup_bottom()?;
         self.draw_status_bar()?;
-
-        Ok(())
-    }
-
-    fn draw_status_bar(&mut self) -> Result<()> {
-        let content_height = self.content_height();
-        let line_idx = self.text.char_to_line(self.cursor);
-
-        queue!(
-            self.stdout,
-            MoveTo(0, content_height),
-            Clear(ClearType::CurrentLine),
-            Print(format_args!(
-                "Ln {}, Col {}",
-                line_idx + 1,
-                self.cursor - self.text.line_to_char(line_idx) + 1
-            ))
-        )?;
 
         Ok(())
     }
@@ -1097,6 +677,24 @@ impl Editor {
         Ok(())
     }
 
+    fn draw_status_bar(&mut self) -> Result<()> {
+        let content_height = self.content_height();
+        let line_idx = self.text.char_to_line(self.cursor);
+
+        queue!(
+            self.stdout,
+            MoveTo(0, content_height),
+            Clear(ClearType::CurrentLine),
+            Print(format_args!(
+                "Ln {}, Col {}",
+                line_idx + 1,
+                self.cursor - self.text.line_to_char(line_idx) + 1
+            ))
+        )?;
+
+        Ok(())
+    }
+
     fn cleanup_bottom(&mut self) -> Result<()> {
         let mut drawn_height: u16 = 0;
         let content_height = self.content_height();
@@ -1155,10 +753,444 @@ impl Editor {
         Ok(())
     }
 
-    pub fn text(&self) -> &Rope {
-        &self.text
+    //================================================================
+    // Scrolling & Viewport Management
+    //================================================================
+
+    fn scroll_to_cursor(&mut self) {
+        let old_offset = self.scroll_offset;
+        let content_height = self.content_height() as u32;
+        if content_height == 0 {
+            return;
+        }
+
+        // 1. 計算游標的絕對視覺 Y
+        let cursor_logical_y = self.text.char_to_line(self.cursor);
+        let start_of_line_char_idx = self.text.line_to_char(cursor_logical_y);
+        let (_, visual_offset_in_line) = self
+            .char_idx_to_visual_pos_in_line(cursor_logical_y, self.cursor - start_of_line_char_idx);
+        let cursor_abs_y = self.logical_to_absolute_visual(ScrollOffset {
+            logical_line: cursor_logical_y,
+            visual_offset_in_line,
+        });
+
+        // 2. 計算當前螢幕的絕對視覺邊界
+        let screen_top_abs_y = self.logical_to_absolute_visual(self.scroll_offset);
+        let screen_bottom_abs_y = screen_top_abs_y + content_height - 1;
+
+        // 3. 決定新的螢幕頂部絕對視覺 Y
+        let new_top_abs_y;
+        if cursor_abs_y < screen_top_abs_y {
+            // 硬性捲動：游標在上方
+            new_top_abs_y = cursor_abs_y;
+        } else if cursor_abs_y > screen_bottom_abs_y {
+            // 硬性捲動：游標在下方
+            new_top_abs_y = cursor_abs_y - content_height + 1;
+        } else {
+            // 軟性捲動
+            let middle_offset = content_height / 2;
+            let ideal_top_abs_y = cursor_abs_y.saturating_sub(middle_offset);
+            let total_doc_visual_height =
+                self.get_total_visual_height_between(0, self.text.len_lines());
+            let remaining_height = total_doc_visual_height.saturating_sub(ideal_top_abs_y);
+
+            if remaining_height < content_height {
+                // 貼底邏輯
+                new_top_abs_y = total_doc_visual_height.saturating_sub(content_height);
+            } else {
+                // 置中邏輯
+                new_top_abs_y = ideal_top_abs_y;
+            }
+        }
+
+        // 4. 將新的絕對視覺 Y 轉換回 ScrollOffset 並更新狀態
+        let final_offset = self.absolute_visual_to_logical(new_top_abs_y);
+        self.scroll_offset = final_offset;
+        if self.scroll_offset != old_offset {
+            self.full_redraw_request = true;
+        }
+    }
+
+    fn content_width(&self) -> usize {
+        let w = (self.terminal_width as usize)
+            .saturating_sub(Self::LINE_NUMBER_WIDTH)
+            .saturating_sub(1);
+        if w == 0 { 1_000_000_000 } else { w }
+    }
+
+    fn content_height(&self) -> u16 {
+        self.terminal_height.saturating_sub(Self::STATUS_BAR_HEIGHT)
+    }
+
+    //================================================================
+    // Text Manipulation & Command Logic
+    //================================================================
+
+    fn curor_move_up(&mut self) {
+        let y = self.text.char_to_line(self.cursor);
+        let start_idx = self.text.line_to_char(y);
+        let x_offset = self.cursor - start_idx;
+        let (vx, vy) = self.char_idx_to_visual_pos_in_line(y, x_offset);
+        let target_vx = *self.tmp_x.get_or_insert(vx);
+
+        if vy > 0 {
+            let new_offset = self.visual_pos_to_char_idx_in_line(y, target_vx, vy - 1);
+            self.cursor = start_idx + new_offset;
+        } else if y > 0 {
+            let prev_line_height = self.get_visual_height_for_line(y - 1);
+            let target_vy = if prev_line_height > 0 {
+                prev_line_height - 1
+            } else {
+                0
+            };
+            let prev_start_idx = self.text.line_to_char(y - 1);
+            let new_offset =
+                self.visual_pos_to_char_idx_in_line(y - 1, target_vx, target_vy as usize);
+            self.cursor = prev_start_idx + new_offset;
+        }
+    }
+
+    fn cursor_move_down(&mut self) {
+        let y = self.text.char_to_line(self.cursor);
+        let start_idx = self.text.line_to_char(y);
+        let x_offset = self.cursor - start_idx;
+        let (vx, vy) = self.char_idx_to_visual_pos_in_line(y, x_offset);
+        let current_line_height = self.get_visual_height_for_line(y);
+        let target_vx = *self.tmp_x.get_or_insert(vx);
+
+        if vy < current_line_height as usize - 1 {
+            let new_offset = self.visual_pos_to_char_idx_in_line(y, target_vx, vy + 1);
+            self.cursor = start_idx + new_offset;
+        } else if y < self.text.len_lines().saturating_sub(1) {
+            let next_start_idx = self.text.line_to_char(y + 1);
+            let new_offset = self.visual_pos_to_char_idx_in_line(y + 1, target_vx, 0);
+            self.cursor = next_start_idx + new_offset;
+        }
+    }
+
+    fn handle_selection(&mut self, in_selection: bool) {
+        if in_selection {
+            if self.selection_anchor.is_none() {
+                self.selection_anchor = Some(self.cursor);
+            }
+        } else {
+            if let Some((start_char, end_char)) = self.get_selection_range() {
+                let start_line = self.text.char_to_line(start_char);
+                let end_line = self.text.char_to_line(end_char);
+                self.dirty_lines.mark(start_line..=end_line);
+            }
+            self.selection_anchor = None;
+        }
+    }
+
+    fn get_selection_range(&self) -> Option<(usize, usize)> {
+        self.selection_anchor.map(|anchor| {
+            if self.cursor < anchor {
+                (self.cursor, anchor)
+            } else {
+                (anchor, self.cursor)
+            }
+        })
+    }
+
+    fn delete_selection(&mut self) -> Option<(usize, usize)> {
+        if let Some((start, end)) = self.get_selection_range() {
+            let start_line = self.text.char_to_line(start);
+            let end_line = self.text.char_to_line(end);
+            let old_line_count = end_line - start_line + 1;
+
+            self.text.remove(start..end);
+
+            self.cursor = start;
+
+            self.selection_anchor = None;
+
+            return Some((start_line, old_line_count));
+        }
+        None
+    }
+
+    fn copy_selection_to_clipboard(&mut self) -> Result<()> {
+        if let Some((start, end)) = self.get_selection_range() {
+            Clipboard::new()?.set_text(self.text.slice(start..end).to_string())?;
+        }
+        Ok(())
+    }
+
+    fn paste_from_clipboard(&mut self) -> Result<Option<(usize, usize, usize)>> {
+        let old_line_count = self.delete_selection().map(|i| i.1).unwrap_or(1);
+
+        let text_to_paste = match Clipboard::new()?.get_text() {
+            Ok(text) => text,
+            Err(_) => return Ok(None),
+        };
+
+        if text_to_paste.is_empty() {
+            return Ok(None);
+        }
+
+        let start_line = self.text.char_to_line(self.cursor);
+
+        let inserted_char_count = text_to_paste.chars().count();
+        self.text.insert(self.cursor, &text_to_paste);
+
+        self.cursor += inserted_char_count;
+
+        let num_newlines_in_paste = text_to_paste.chars().filter(|&c| c == '\n').count();
+        let new_line_count = num_newlines_in_paste + 1;
+
+        Ok(Some((start_line, old_line_count, new_line_count)))
+    }
+
+    //================================================================
+    // State & Cache Management (Internal Data Structures)
+    //================================================================
+
+    fn rebuild_height_cache(&mut self) {
+        self.cumulative_visual_heights.clear();
+        self.cumulative_visual_heights.push(0);
+        if self.text.len_lines() == 0 {
+            return;
+        }
+        let mut total_height: u32 = 0;
+        for i in 0..self.text.len_lines() {
+            let line_height = max(
+                1,
+                self.text
+                    .line(i)
+                    .chunk_by_width_cjk(self.content_width())
+                    .count(),
+            ) as u32;
+            total_height += line_height;
+            self.cumulative_visual_heights.push(total_height);
+        }
+    }
+
+    fn update_height_cache(
+        &mut self,
+        start_line: usize,
+        old_line_count: usize,
+        new_line_count: usize,
+    ) -> i64 {
+        if self.text.len_lines() == 0 {
+            self.cumulative_visual_heights = vec![0];
+            return 0;
+        }
+
+        let old_span_height = self.cumulative_visual_heights[start_line + old_line_count]
+            - self.cumulative_visual_heights[start_line];
+
+        let mut new_heights = Vec::with_capacity(new_line_count);
+        let mut new_span_height: u32 = 0;
+        for i in 0..new_line_count {
+            let line_idx = start_line + i;
+            let h = max(
+                1,
+                self.text
+                    .line(line_idx)
+                    .chunk_by_width_cjk(self.content_width())
+                    .count(),
+            ) as u32;
+            new_heights.push(h);
+            new_span_height += h;
+        }
+
+        let delta = new_span_height as i64 - old_span_height as i64;
+
+        let mut new_cumulative_heights = Vec::with_capacity(new_line_count);
+        let mut current_cumulative = self.cumulative_visual_heights[start_line];
+        for h in new_heights {
+            current_cumulative += h;
+            new_cumulative_heights.push(current_cumulative);
+        }
+
+        self.cumulative_visual_heights.splice(
+            start_line + 1..start_line + 1 + old_line_count,
+            new_cumulative_heights,
+        );
+
+        if delta != 0 {
+            for i in (start_line + 1 + new_line_count)..self.cumulative_visual_heights.len() {
+                self.cumulative_visual_heights[i] =
+                    (self.cumulative_visual_heights[i] as i64 + delta) as u32;
+            }
+        }
+
+        delta
+    }
+
+    fn get_visual_height_for_line(&self, line_idx: usize) -> u16 {
+        if line_idx + 1 >= self.cumulative_visual_heights.len() {
+            return 1;
+        }
+        (self.cumulative_visual_heights[line_idx + 1] - self.cumulative_visual_heights[line_idx])
+            as u16
+    }
+
+    fn get_total_visual_height_between(&self, start: usize, end: usize) -> u32 {
+        if end >= self.cumulative_visual_heights.len() || start > end {
+            return 0;
+        }
+        self.cumulative_visual_heights[end] - self.cumulative_visual_heights[start]
+    }
+
+    //================================================================
+    // Coordinate & Position Conversion Utilities
+    //================================================================
+
+    fn screen_to_char_idx(&self, screen_x: u16, screen_y: u16) -> Option<usize> {
+        if screen_y >= self.content_height() {
+            return None; // 點擊在狀態列或下方
+        }
+
+        // --- Y 軸轉換 (此部分邏輯正確，保持不變) ---
+        let screen_top_abs_y = self.logical_to_absolute_visual(self.scroll_offset);
+        let target_abs_y = screen_top_abs_y + screen_y as u32;
+        let target_logical_pos = self.absolute_visual_to_logical(target_abs_y);
+        let logical_line_idx = target_logical_pos.logical_line;
+
+        if logical_line_idx >= self.text.len_lines() {
+            return Some(self.text.len_chars());
+        }
+
+        // --- X 軸轉換 (重寫此部分邏輯) ---
+        let line = self.text.line(logical_line_idx);
+        let line_start_char_idx = self.text.line_to_char(logical_line_idx);
+        let content_width = self.content_width();
+
+        if (screen_x as usize) < Self::LINE_NUMBER_WIDTH {
+            return Some(line_start_char_idx); // 點擊行號，定位到行首
+        }
+        let target_visual_x = (screen_x as usize).saturating_sub(Self::LINE_NUMBER_WIDTH);
+
+        let mut current_visual_y = 0;
+        let mut current_visual_x = 0;
+
+        for (char_offset, ch) in line.chars().enumerate() {
+            // 檢查是否已到達目標視覺行
+            if current_visual_y == target_logical_pos.visual_offset_in_line {
+                // 在目標視覺行內，尋找 X 座標
+                // 比較 ch 的中點，使用者體驗更好
+                let char_width = ch.width_cjk().unwrap_or(1);
+                if current_visual_x + char_width / 2 >= target_visual_x {
+                    return Some(line_start_char_idx + char_offset);
+                }
+            }
+
+            // --- 無條件地、為每個字元更新視覺佈局 ---
+            let char_width = ch.width_cjk().unwrap_or(1);
+            if current_visual_x + char_width > content_width {
+                // 換行
+                current_visual_y += 1;
+                current_visual_x = char_width;
+            } else {
+                // 不換行
+                current_visual_x += char_width;
+            }
+
+            // 如果當前字元是換行符，迴圈會自然結束
+            if ch == '\n' {
+                break;
+            }
+        }
+
+        // 如果遍歷完畢 (點擊在行尾空白處)，將游標定位到該邏輯行的內容末尾
+        Some(line_start_char_idx + line.len_chars_without_ending())
+    }
+
+    fn char_idx_to_visual_pos_in_line(
+        &self,
+        line_idx: usize,
+        char_offset: usize,
+    ) -> (usize, usize) {
+        let line = self.text.line(line_idx);
+        let content_width = self.content_width();
+        let mut visual_x = 0;
+        let mut visual_y = 0;
+        for (i, ch) in line.chars().enumerate() {
+            if i >= char_offset {
+                break;
+            }
+            let w = ch.width_cjk().unwrap_or(1);
+            if visual_x + w > content_width {
+                visual_y += 1;
+                visual_x = w;
+            } else {
+                visual_x += w;
+            }
+        }
+        (visual_x, visual_y)
+    }
+
+    fn visual_pos_to_char_idx_in_line(
+        &self,
+        line_idx: usize,
+        target_vx: usize,
+        target_vy: usize,
+    ) -> usize {
+        let line = self.text.line(line_idx);
+        let content_width = self.content_width();
+        let mut current_vx = 0;
+        let mut current_vy = 0;
+        let mut last_char_idx = 0;
+        for (i, ch) in line.chars().enumerate() {
+            if current_vy > target_vy {
+                return last_char_idx;
+            }
+            last_char_idx = i;
+            let w = ch.width_cjk().unwrap_or(1);
+            if current_vy == target_vy && current_vx >= target_vx {
+                return i;
+            }
+            if current_vx + w > content_width {
+                current_vy += 1;
+                current_vx = w;
+            } else {
+                current_vx += w;
+            }
+        }
+        line.len_chars_without_ending()
+    }
+
+    fn logical_to_absolute_visual(&self, offset: ScrollOffset) -> u32 {
+        // 獲取該邏輯行之前所有行的總視覺高度
+        let height_before = self.get_total_visual_height_between(0, offset.logical_line);
+        height_before + offset.visual_offset_in_line as u32
+    }
+
+    fn absolute_visual_to_logical(&self, abs_visual_y: u32) -> ScrollOffset {
+        // 處理邊界情況：如果文件為空或 Y 為 0
+        if self.text.len_lines() == 0 || abs_visual_y == 0 {
+            return ScrollOffset::default();
+        }
+
+        // 使用二分搜尋在 `cumulative_visual_heights` 中快速定位邏輯行。
+        // `binary_search` 會找到第一個 `>` 或 `==` 目標值的位置。
+        // `partition_point` 在這種情況下更直觀：找到第一個 `>` 目標值的位置。
+        let logical_line = self
+            .cumulative_visual_heights
+            .partition_point(|&h| h <= abs_visual_y)
+            .saturating_sub(1); // partition_point 返回的是插入點，所以減1才是目標區間
+
+        // 確保找到的行號不會越界
+        let logical_line = logical_line.min(self.text.len_lines() - 1);
+
+        // 獲取該邏輯行之前的總視覺高度
+        let height_before = self.get_total_visual_height_between(0, logical_line);
+
+        // 計算在該邏輯行內的視覺偏移
+        let visual_offset_in_line = abs_visual_y.saturating_sub(height_before) as usize;
+
+        ScrollOffset {
+            logical_line,
+            visual_offset_in_line,
+        }
     }
 }
+
+//================================================================
+// Helper Trait & Functions
+//================================================================
 
 pub trait RopeSliceExt<'a> {
     fn chunk_by_width_cjk(&'a self, max_width: usize) -> impl Iterator<Item = RopeSlice<'a>>;
@@ -1166,7 +1198,6 @@ pub trait RopeSliceExt<'a> {
     ///
     /// Runs in O(log len(slice)) time.
     fn len_chars_without_ending(&'a self) -> usize;
-    // fn trim_end(&'a self) -> RopeTrimEnd<'a>;
 }
 
 impl<'a> RopeSliceExt<'a> for RopeSlice<'a> {
@@ -1207,9 +1238,6 @@ impl<'a> RopeSliceExt<'a> for RopeSlice<'a> {
             len
         }
     }
-    // fn trim_end(&'a self) -> RopeTrimEnd<'a> {
-    //     RopeTrimEnd(*self)
-    // }
 }
 
 #[derive(Debug, PartialEq, Eq)]

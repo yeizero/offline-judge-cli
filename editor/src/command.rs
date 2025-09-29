@@ -1,58 +1,98 @@
 use std::{collections::HashMap, str::FromStr};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use maplit::hashmap;
 use shared::bridge::FastKeyMapProtocol;
 
-pub fn default_keymap() -> std::collections::HashMap<InputEvent, Command> {
-    hashmap! {
-        InputEvent { code: KeyCode::Enter,      modifiers: KeyModifiers::NONE  } => Command::InputEnter,
-        InputEvent { code: KeyCode::Enter,      modifiers: KeyModifiers::SHIFT } => Command::InputEnter,
-        InputEvent { code: KeyCode::Backspace,  modifiers: KeyModifiers::NONE  } => Command::DeleteLeft,
-        InputEvent { code: KeyCode::Delete,     modifiers: KeyModifiers::NONE  } => Command::DeleteRight,        
-        InputEvent { code: KeyCode::Backspace,  modifiers: KeyModifiers::SHIFT } => Command::DeleteLeft,
-        InputEvent { code: KeyCode::Delete,     modifiers: KeyModifiers::SHIFT } => Command::DeleteRight,
-        InputEvent { code: KeyCode::Backspace,  modifiers: KeyModifiers::CONTROL } => Command::DeleteWordLeft,
-        InputEvent { code: KeyCode::Delete,     modifiers: KeyModifiers::CONTROL } => Command::DeleteWordRight,
-        InputEvent { code: KeyCode::Backspace,  modifiers: KeyModifiers::CONTROL | KeyModifiers::SHIFT } => Command::DeleteWordLeft,        
-        InputEvent { code: KeyCode::Delete,     modifiers: KeyModifiers::CONTROL | KeyModifiers::SHIFT } => Command::DeleteWordRight,
-        InputEvent { code: KeyCode::Char('w'),  modifiers: KeyModifiers::CONTROL } => Command::DeleteWordLeft,
-        InputEvent { code: KeyCode::Char('d'),     modifiers: KeyModifiers::ALT     } => Command::DeleteWordRight,
-        
-        InputEvent { code: KeyCode::Up,         modifiers: KeyModifiers::NONE } => Command::CursorUp,
-        InputEvent { code: KeyCode::Down,       modifiers: KeyModifiers::NONE } => Command::CursorDown,
-        InputEvent { code: KeyCode::Left,       modifiers: KeyModifiers::NONE } => Command::CursorLeft,
-        InputEvent { code: KeyCode::Right,      modifiers: KeyModifiers::NONE } => Command::CursorRight,
-        InputEvent { code: KeyCode::Up,         modifiers: KeyModifiers::SHIFT } => Command::CursorUp,
-        InputEvent { code: KeyCode::Down,       modifiers: KeyModifiers::SHIFT } => Command::CursorDown,
-        InputEvent { code: KeyCode::Left,       modifiers: KeyModifiers::SHIFT } => Command::CursorLeft,
-        InputEvent { code: KeyCode::Right,      modifiers: KeyModifiers::SHIFT } => Command::CursorRight,
-        InputEvent { code: KeyCode::Up,         modifiers: KeyModifiers::CONTROL } => Command::CursorUp,
-        InputEvent { code: KeyCode::Down,       modifiers: KeyModifiers::CONTROL } => Command::CursorDown,
-        InputEvent { code: KeyCode::Left,       modifiers: KeyModifiers::CONTROL } => Command::CursorWordLeft,
-        InputEvent { code: KeyCode::Right,      modifiers: KeyModifiers::CONTROL } => Command::CursorWordRight,
-        InputEvent { code: KeyCode::Up,         modifiers: KeyModifiers::CONTROL | KeyModifiers::SHIFT } => Command::CursorUp,
-        InputEvent { code: KeyCode::Down,       modifiers: KeyModifiers::CONTROL | KeyModifiers::SHIFT } => Command::CursorDown,        
-        InputEvent { code: KeyCode::Left,       modifiers: KeyModifiers::CONTROL | KeyModifiers::SHIFT } => Command::CursorWordLeft,
-        InputEvent { code: KeyCode::Right,      modifiers: KeyModifiers::CONTROL | KeyModifiers::SHIFT } => Command::CursorWordRight,
+macro_rules! _keymap_entry {
+    (@internal [ $( $mods:ident )* ] $next_mod:ident + $( $rest:tt )+) => {
+        _keymap_entry!(@internal [ $( $mods )* $next_mod ] $( $rest )+)
+    };
 
-        InputEvent { code: KeyCode::Home,       modifiers: KeyModifiers::NONE } => Command::CursorHome,
-        InputEvent { code: KeyCode::End,        modifiers: KeyModifiers::NONE } => Command::CursorEnd,
-        InputEvent { code: KeyCode::PageUp,     modifiers: KeyModifiers::NONE } => Command::CursorPageUp,
-        InputEvent { code: KeyCode::PageDown,   modifiers: KeyModifiers::NONE } => Command::CursorPageDown,
+    (@internal [ $( $modifier:ident )* ] $code_func:ident ( $( $args:tt )* ) => $command:expr) => {
+        (InputEvent {
+            code: KeyCode::$code_func ( $( $args )* ),
+            modifiers: $( KeyModifiers::$modifier | )* KeyModifiers::NONE
+        }, $command)
+    };
 
-        InputEvent { code: KeyCode::Char('a'),  modifiers: KeyModifiers::CONTROL } => Command::SelectAll,
-        InputEvent { code: KeyCode::Char('l'),  modifiers: KeyModifiers::CONTROL } => Command::SelectLine,
+    (@internal [ $( $modifier:ident )* ] $code:ident => $command:expr) => {
+        (InputEvent {
+            code: KeyCode::$code,
+            modifiers: $( KeyModifiers::$modifier | )* KeyModifiers::NONE
+        }, $command)
+    };
 
-        InputEvent { code: KeyCode::Char('c'),  modifiers: KeyModifiers::CONTROL } => Command::TextCopy,
-        InputEvent { code: KeyCode::Char('x'),  modifiers: KeyModifiers::CONTROL } => Command::TextCut,
-        InputEvent { code: KeyCode::Char('v'),  modifiers: KeyModifiers::CONTROL } => Command::TextPaste,
-        // InputEvent { code: KeyCode::Char('n'),  modifiers: KeyModifiers::CONTROL } => Command::TextPaste,
-
-        InputEvent { code: KeyCode::Esc,        modifiers: KeyModifiers::NONE } => Command::Exit,
-    }
+    ( $( $tokens:tt )+ ) => {
+        _keymap_entry!(@internal [] $( $tokens )+)
+    };
 }
 
+macro_rules! keymap {
+    ( $( ( $( $entry:tt )+ ) ),* $(,)? ) => {
+        {
+            use Command::*;
+            let entries = [$( _keymap_entry!( $( $entry )+ )),*];
+            let mut map = HashMap::with_capacity(entries.len());
+            map.extend(entries);
+            map
+        }
+    };
+}
+
+pub fn default_keymap() -> HashMap<InputEvent, Command> {
+    keymap! {
+        // --- Text Editing ---
+        (Enter                      => InputEnter),
+        (SHIFT + Enter              => InputEnter),
+        (Backspace                  => DeleteLeft),
+        (Delete                     => DeleteRight),
+        (SHIFT + Backspace          => DeleteLeft),
+        (SHIFT + Delete             => DeleteRight),
+        (CONTROL + Backspace        => DeleteWordLeft),
+        (CONTROL + Delete           => DeleteWordRight),
+        (CONTROL + SHIFT + Backspace => DeleteWordLeft),
+        (CONTROL + SHIFT + Delete   => DeleteWordRight),
+        (CONTROL + Char('w')        => DeleteWordLeft),
+        (ALT + Char('d')            => DeleteWordRight),
+
+        // --- Cursor Movement ---
+        (Up                         => CursorUp),
+        (Down                       => CursorDown),
+        (Left                       => CursorLeft),
+        (Right                      => CursorRight),
+        (SHIFT + Up                 => CursorUp),
+        (SHIFT + Down               => CursorDown),
+        (SHIFT + Left               => CursorLeft),
+        (SHIFT + Right              => CursorRight),
+        (CONTROL + Up               => CursorUp),
+        (CONTROL + Down             => CursorDown),
+        (CONTROL + Left             => CursorWordLeft),
+        (CONTROL + Right            => CursorWordRight),
+        (CONTROL + SHIFT + Up       => CursorUp),
+        (CONTROL + SHIFT + Down     => CursorDown),
+        (CONTROL + SHIFT + Left     => CursorWordLeft),
+        (CONTROL + SHIFT + Right    => CursorWordRight),
+
+        // --- Page/Line Navigation ---
+        (Home       => CursorHome),
+        (End        => CursorEnd),
+        (PageUp     => CursorPageUp),
+        (PageDown   => CursorPageDown),
+
+        // --- Selection ---
+        (CONTROL + Char('a') => SelectAll),
+        (CONTROL + Char('l') => SelectLine),
+
+        // --- Clipboard ---
+        (CONTROL + Char('c') => TextCopy),
+        (CONTROL + Char('x') => TextCut),
+        (CONTROL + Char('v') => TextPaste),
+        // (CONTROL + Char('n') => TextPaste),
+
+        // --- Application ---
+        (Esc => Exit)
+    }
+}
 #[derive(Debug, Clone, Copy)]
 pub enum Command {
     InputChar(char),
