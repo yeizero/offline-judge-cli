@@ -12,16 +12,16 @@ use crossterm::{
 };
 use either::Either;
 use ropey::{Rope, RopeSlice, iter::Chars};
-use std::collections::{HashMap, HashSet};
+use std::cmp::{max, min};
+use std::collections::HashMap;
 use std::io::{Write, stdout};
 use std::time::Duration;
-use std::{
-    cmp::{max, min},
-    mem,
-};
 use unicode_width::UnicodeWidthChar;
 
-use crate::command::{Command, InputEvent, default_keymap};
+use crate::{
+    algorithms::DirtyLines,
+    command::{Command, InputEvent, default_keymap},
+};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ScrollOffset {
@@ -57,7 +57,7 @@ pub struct Editor {
     cumulative_visual_heights: Vec<u32>,
     is_dirty: bool,
     full_redraw_request: bool,
-    dirty_lines: HashSet<usize>,
+    dirty_lines: DirtyLines,
     should_quit: bool,
     pub keymap: HashMap<InputEvent, Command>,
 }
@@ -85,7 +85,7 @@ impl Editor {
             cumulative_visual_heights: vec![0],
             is_dirty: true,
             full_redraw_request: true,
-            dirty_lines: HashSet::new(),
+            dirty_lines: DirtyLines::new(),
             should_quit: false,
             keymap: default_keymap(),
         }
@@ -161,7 +161,6 @@ impl Editor {
             }
         }
 
-        // NEW: 回傳計算出的高度變化量
         delta
     }
 
@@ -333,9 +332,7 @@ impl Editor {
             if let Some((start_char, end_char)) = self.get_selection_range() {
                 let start_line = self.text.char_to_line(start_char);
                 let end_line = self.text.char_to_line(end_char);
-                for i in start_line..=end_line {
-                    self.dirty_lines.insert(i);
-                }
+                self.dirty_lines.mark(start_line..=end_line);
             }
             self.selection_anchor = None;
         }
@@ -365,32 +362,29 @@ impl Editor {
         None
     }
 
-    fn paste_from_clipboard(&mut self) -> Result<Option<(usize, usize)>> {
-        self.delete_selection();
+    fn paste_from_clipboard(&mut self) -> Result<Option<(usize, usize, usize)>> {
+        let old_line_count = self.delete_selection().map(|i| i.1).unwrap_or(1);
 
-        let text_to_paste = Clipboard::new()?.get_text()?;
+        let text_to_paste = match Clipboard::new()?.get_text() {
+            Ok(text) => text,
+            Err(_) => return Ok(None),
+        };
+
+        if text_to_paste.is_empty() {
+            return Ok(None);
+        }
 
         let start_line = self.text.char_to_line(self.cursor);
 
-        // 插入文字
+        let inserted_char_count = text_to_paste.chars().count();
         self.text.insert(self.cursor, &text_to_paste);
 
-        // 更新游標位置
-        self.cursor += text_to_paste.chars().count();
+        self.cursor += inserted_char_count;
 
-        // 計算影響的新行數
-        let new_lines_in_paste = text_to_paste.lines().count();
-        // 如果貼上的文字不以換行符結尾，lines() 會少算一行
-        let new_line_count = if new_lines_in_paste > 0 && !text_to_paste.ends_with('\n') {
-            new_lines_in_paste
-        } else if new_lines_in_paste > 0 {
-            // 如果貼上的內容包含換行，它會分割當前行
-            new_lines_in_paste
-        } else {
-            1 // 沒有換行符，只影響當前行
-        };
+        let num_newlines_in_paste = text_to_paste.chars().filter(|&c| c == '\n').count();
+        let new_line_count = num_newlines_in_paste + 1;
 
-        Ok(Some((start_line, new_line_count)))
+        Ok(Some((start_line, old_line_count, new_line_count)))
     }
 
     pub fn run(&mut self) -> Result<()> {
@@ -450,9 +444,8 @@ impl Editor {
                             let old_line = self.text.char_to_line(self.cursor);
                             let new_line = self.text.char_to_line(char_idx);
 
-                            for i in min(old_line, new_line)..=max(old_line, new_line) {
-                                self.dirty_lines.insert(i);
-                            }
+                            self.dirty_lines
+                                .mark(min(old_line, new_line)..=max(old_line, new_line));
 
                             self.cursor = char_idx;
                             self.tmp_x = None;
@@ -521,23 +514,19 @@ impl Editor {
             let delta = self.update_height_cache(start, old_count, new_count);
             if delta != 0 {
                 // 高度變化，擠壓下方所有可見行
-                for i in start..self.text.len_lines() {
-                    self.dirty_lines.insert(i);
-                }
+                self.dirty_lines.mark(start..self.text.len_lines());
             } else {
                 // 高度不變，只重繪被修改的行
-                for i in 0..new_count {
-                    self.dirty_lines.insert(start + i);
-                }
+                self.dirty_lines.mark(start..(start + new_count));
             }
         }
 
         // 2. 處理因游標移動觸發的髒行
         if effect != CommandEffect::None {
             self.is_dirty = true;
-            self.dirty_lines.insert(cursor_line_before);
+            self.dirty_lines.mark(cursor_line_before);
             let cursor_line_after = self.text.char_to_line(self.cursor);
-            self.dirty_lines.insert(cursor_line_after);
+            self.dirty_lines.mark(cursor_line_after);
 
             let cursor_now = self.cursor;
             self.cursor = cursor_before;
@@ -792,9 +781,9 @@ impl Editor {
                 self.selection_anchor = Some(line_start_char_idx);
                 self.cursor = next_line_start_char_idx;
 
-                self.dirty_lines.insert(cursor_line_idx);
+                self.dirty_lines.mark(cursor_line_idx);
                 if cursor_line_idx + 1 < self.text.len_lines() {
-                    self.dirty_lines.insert(cursor_line_idx + 1);
+                    self.dirty_lines.mark(cursor_line_idx + 1);
                 }
                 CommandEffect::SelectionFixed
             }
@@ -808,8 +797,10 @@ impl Editor {
                 CommandEffect::CursorDirty
             }
             Command::TextPaste => {
-                if let Some((start_line, new_line_count)) = self.paste_from_clipboard()? {
-                    CommandEffect::TextChanged(start_line, 1, new_line_count)
+                if let Some((start_line, old_line_count, new_line_count)) =
+                    self.paste_from_clipboard()?
+                {
+                    CommandEffect::TextChanged(start_line, old_line_count, new_line_count)
                 } else {
                     CommandEffect::None
                 }
@@ -871,13 +862,6 @@ impl Editor {
         }
     }
 
-    fn get_total_visual_height_between(&self, start: usize, end: usize) -> u32 {
-        if end >= self.cumulative_visual_heights.len() || start > end {
-            return 0;
-        }
-        self.cumulative_visual_heights[end] - self.cumulative_visual_heights[start]
-    }
-
     fn content_width(&self) -> usize {
         let w = (self.terminal_width as usize)
             .saturating_sub(Self::LINE_NUMBER_WIDTH)
@@ -887,6 +871,13 @@ impl Editor {
 
     fn content_height(&self) -> u16 {
         self.terminal_height.saturating_sub(Self::STATUS_BAR_HEIGHT)
+    }
+
+    fn get_total_visual_height_between(&self, start: usize, end: usize) -> u32 {
+        if end >= self.cumulative_visual_heights.len() || start > end {
+            return 0;
+        }
+        self.cumulative_visual_heights[end] - self.cumulative_visual_heights[start]
     }
 
     fn get_visual_height_for_line(&self, line_idx: usize) -> u16 {
@@ -952,35 +943,45 @@ impl Editor {
     }
 
     fn draw_updates(&mut self) -> Result<()> {
-        if self.full_redraw_request {
-            self.dirty_lines.clear();
+        let first_visible_line = self.scroll_offset.logical_line;
+        let mut last_visible_line = first_visible_line;
+        let content_height = self.content_height();
 
-            // --- 新的、更精確的髒行計算邏輯 ---
+        if first_visible_line < self.text.len_lines() {
             let mut y: u16 = 0;
-            // 處理第一個 (可能部分可見的) 邏輯行
-            let first_line_idx = self.scroll_offset.logical_line;
-            if first_line_idx < self.text.len_lines() {
-                self.dirty_lines.insert(first_line_idx);
-                let line_height = self.get_visual_height_for_line(first_line_idx);
-                y += line_height.saturating_sub(self.scroll_offset.visual_offset_in_line as u16);
-            }
-            // 處理後續的邏輯行
-            for i in (first_line_idx + 1)..self.text.len_lines() {
-                if y >= self.content_height() {
-                    break;
-                }
-                self.dirty_lines.insert(i);
-                y += self.get_visual_height_for_line(i);
-            }
-            // --- 邏輯結束 ---
+            let line_height = self.get_visual_height_for_line(first_visible_line);
+            y += line_height.saturating_sub(self.scroll_offset.visual_offset_in_line as u16);
 
+            if y < content_height {
+                for i in (first_visible_line + 1)..self.text.len_lines() {
+                    y += self.get_visual_height_for_line(i);
+                    last_visible_line = i;
+                    if y >= content_height {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let query_range = first_visible_line..=last_visible_line;
+
+        if self.full_redraw_request {
+            self.dirty_lines.mark(query_range.clone());
             self.full_redraw_request = false;
         }
-        for line_idx in mem::take(&mut self.dirty_lines) {
-            if line_idx < self.text.len_lines() {
+
+        for (start, end) in self
+            .dirty_lines
+            .iter_dirty_ranges(query_range.clone())
+            .collect::<Vec<_>>()
+        {
+            for line_idx in start..=end {
                 self.draw_single_line(line_idx)?;
             }
         }
+
+        self.dirty_lines.clear();
+
         self.cleanup_bottom()?;
         self.draw_status_bar()?;
 
@@ -1216,7 +1217,7 @@ enum CharKind {
     Word,
     Symbol,
     Whitespace,
-    Newline, // 將換行符視為一個獨立的類別
+    Newline,
 }
 
 fn classify_char(c: char) -> CharKind {
@@ -1245,30 +1246,3 @@ fn consume_while_kind(iter: &mut Chars<'_>, kind: CharKind) -> (usize, Option<Ch
     }
     (offset, None)
 }
-
-// struct RopeTrimEnd<'a>(RopeSlice<'a>);
-
-// impl<'a> RopeTrimEnd<'a> {
-//     fn as_slice(&self) -> RopeSlice<'a> {
-//         for (i, ch) in self.0.chars_at(self.0.len_chars()).reversed().enumerate() {
-//             if !ch.is_whitespace() {
-//                 return self.0.slice(0..(self.0.len_chars() - i));
-//             }
-//         }
-//         self.0.slice(0..0)
-//     }
-// }
-
-// impl<'a> std::fmt::Display for RopeTrimEnd<'a> {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let mut iter = self.0.chunks().peekable();
-//         while let Some(item) = iter.next() {
-//             if iter.peek().is_none() {
-//                 write!(f, "{}", item.trim_end())?;
-//             } else {
-//                 write!(f, "{item}")?;
-//             }
-//         }
-//         Ok(())
-//     }
-// }

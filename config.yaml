@@ -34,12 +34,13 @@ evaluator:
         command: "zig build-exe {source} -O ReleaseSafe -fno-stack-check -fno-sanitize-c -femit-bin={output}"
   warmup: 1
 generator:
-  # editor:
-  #   keymap:
-  #     ctrl+h: CursorLeft
-  #     ctrl+j: CursorDown
-  #     ctrl+k: CursorUp
-  #     ctrl+l: CursorRight
+  editor:
+    keymap:
+      # ctrl+n: TextPaste
+      # ctrl+h: CursorLeft
+      # ctrl+j: CursorDown
+      # ctrl+k: CursorUp
+      # ctrl+l: CursorRight
   plugins:
     - name: 從ZeroJudge讀取
       command: ".venv/Scripts/python.exe plugins/zerojudge.py"

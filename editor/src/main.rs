@@ -1,5 +1,6 @@
 mod command;
 mod editor;
+mod algorithms;
 
 use std::io::{self, BufReader, BufWriter};
 
@@ -41,13 +42,15 @@ fn main() -> anyhow::Result<()> {
         editor.keymap = merge_keymap(editor.keymap, user_config);
     }
 
-    editor.run()?;
+    let result = editor.run();
 
     if let Some(path) = &args.file {
         let file = fs::File::create(path)?;
         let writer = BufWriter::new(file);
         editor.text().write_to(writer)?;
     }
+
+    result?;
 
     Ok(())
 }
