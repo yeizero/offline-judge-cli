@@ -1,6 +1,7 @@
 use fs_err::File;
 use shared::bridge::write_keymap_to_file;
 use std::{
+    env,
     ffi::OsStr,
     fmt,
     io::Write,
@@ -189,10 +190,7 @@ fn with_yaml(input: &str) -> String {
     }
 }
 
-fn input_text_or_editor(
-    config: &GeneratorConfig,
-    message: &str,
-) -> Result<String, InquireError> {
+fn input_text_or_editor(config: &GeneratorConfig, message: &str) -> Result<String, InquireError> {
     let input = Text::new(message)
         .with_autocomplete(CaseInputCompleter)
         .with_help_message(ESCAPABLE)

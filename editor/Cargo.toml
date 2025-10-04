@@ -7,7 +7,6 @@ edition = "2024"
 shared = { path = "../shared" }
 anyhow = "1.0.100"
 argh = { version = "0.1.13", default-features = false, features = ["serde"] }
-bit-set = "0.8.0"
 crossterm = "0.29.0"
 either = "1.15.0"
 ropey = "1.6.1"
