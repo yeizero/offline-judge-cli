@@ -1,12 +1,19 @@
 import requests
 from bs4 import BeautifulSoup
 import re
+from json import dumps
 
-def ask(*values):
-    print("/ask", *values)
-    return input("")
+def call(command: str, content = None):
+    print(f"{command} {dumps(content)}")
 
-print("/info ZeroJudge範例測資抓取")
+def ask(content: str):
+    call("/ask", {"message": content})
+    try:
+        return input()
+    except EOFError:
+        exit()
+
+call("/info", "ZeroJudge範例測資抓取")
 
 def fetch_valid_soup():
     while True:
@@ -16,19 +23,19 @@ def fetch_valid_soup():
         try:
             r = requests.get(url)
             if r.status_code != 200:
-                print("/error 無法連線，HTTP", r.status_code)
+                call("/error", f"無法連線，HTTP {r.status_code}")
                 continue
             return BeautifulSoup(r.text, 'html.parser')
         except Exception as _:
-            print(f"/error 請輸入有效{'題號' if is_id else '連結'}")
+            call("/error", f"請輸入有效{'題號' if is_id else '連結'}")
             continue
 
 soup = fetch_valid_soup()
 
-inputs = []
-outputs = []
-memory_limit = None
-time_limit = None
+inputs: list[str] = []
+answers: list[str] = []
+memory_limit: float | None = None
+time_limit: float | None = None
 
 # 抓取範例輸入與範例輸出
 for panel in soup.select('.panel'):
@@ -39,9 +46,9 @@ for panel in soup.select('.panel'):
     text = heading.get_text()
     content = body.get_text().strip('\n')
     if "範例輸入" in text:
-        inputs.append(content)
+        inputs.append(re.sub("\r", "", content))
     elif "範例輸出" in text:
-        outputs.append(content)
+        answers.append(re.sub("\r", "", content))
 
 # 抓取記憶體限制與時間限制
 limit_panel = soup.select_one('.col-md-3 .panel-body')
@@ -59,19 +66,49 @@ if limit_panel:
     if time_matches:
         time_limit = max(float(t) for t in time_matches) * 1000
 
-print("/result")
-for i in range(min(len(inputs), len(outputs))):
-    in_lines = inputs[i].strip().splitlines()
-    out_lines = outputs[i].strip().splitlines()
+metadata: dict[str, str] = {}
 
-    print(f"input {len(in_lines)}")
-    for line in in_lines:
-        print(line)
+title = soup.select_one('#problem_title')
+if title:
+    title = title.parent
+    if title:
+        metadata["title"] = re.sub(r"[\n\t]+", " ", title.get_text().strip())
 
-    print(f"answer {len(out_lines)}")
-    for line in out_lines:
-        print(line)
+description = soup.select_one("#problem_content")
+if description:
+    metadata["description"] = description.get_text("\n").strip()
 
-if memory_limit is not None and time_limit is not None:
-    print("limit 1")
-    print(f"memory {int(memory_limit)} time {int(time_limit)}")
+    input_description = soup.select_one("#problem_theinput")
+    if input_description:
+        parent = input_description.parent
+        grandparent = parent.parent if parent else None
+        heading = grandparent.select_one(".panel-heading") if grandparent else None
+        if heading:
+            metadata["description"] += "\n\n" + heading.get_text() + "\n"
+        metadata["description"] += "\n" + input_description.get_text("\n").strip()
+
+    output_description = soup.select_one("#problem_theoutput")
+    if output_description:
+        parent = output_description.parent
+        grandparent = parent.parent if parent else None
+        heading = grandparent.select_one(".panel-heading") if grandparent else None
+        if heading:
+            metadata["description"] += "\n\n" + heading.get_text() + "\n"
+        metadata["description"] += "\n" + output_description.get_text("\n").strip()
+    
+    metadata["description"] = re.sub(r"[\r\t]+", "", metadata["description"])
+    metadata["description"] = re.sub(r"([^\S\n]*\n){4}[^\S\n]*", "\n\n", metadata["description"])
+
+def float_to_int(value: float | None) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+call("/data", {
+    "limit": {
+        "memory": float_to_int(memory_limit),
+        "time": float_to_int(time_limit)
+    },
+    "cases": [{"input": input, "answer": answer} for input, answer in zip(inputs, answers)],
+    "meta": metadata
+})

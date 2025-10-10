@@ -1,0 +1,72 @@
+use crate::judge::verdict::Limitation;
+use shared::RawCommand;
+use std::{process::ExitStatus, time::Duration};
+use tokio::time::timeout;
+pub trait JudgeMonitor<'a>: Sized {
+    /// Err as system error
+    async fn load(
+        runner: &'a RawCommand,
+        input: &'a str,
+        limit: &'a Limitation,
+    ) -> anyhow::Result<Self>;
+    /// Err as runtime error
+    async fn execute(&mut self) -> anyhow::Result<TimingStatus<MonitorOutput>>;
+}
+
+pub struct MonitorOutput {
+    pub duration: Duration,
+    pub memory: Option<usize>,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    #[expect(dead_code)]
+    pub status: ExitStatus,
+}
+
+pub enum TimingStatus<T> {
+    InTime(T),
+    Aborted(Duration),
+}
+
+impl<T> TimingStatus<T> {
+    // pub fn map<R, F>(self, f: F) -> TimingStatus<R>
+    // where
+    //     F: FnOnce(T) -> R,
+    // {
+    //     match self {
+    //         Self::InTime(value) => TimingStatus::InTime(f(value)),
+    //         Self::Aborted(d) => TimingStatus::Aborted(d),
+    //     }
+    // }
+
+    pub fn map_result<R, E, F>(self, f: F) -> Result<TimingStatus<R>, E>
+    where
+        F: FnOnce(T) -> Result<R, E>,
+    {
+        match self {
+            Self::InTime(value) => match f(value) {
+                Ok(new_value) => Ok(TimingStatus::InTime(new_value)),
+                Err(e) => Err(e)
+            },
+            Self::Aborted(d) => Ok(TimingStatus::Aborted(d)),
+        }
+    }
+}
+
+pub async fn timeout_with_limit<F>(limit: &Limitation, future: F) -> TimingStatus<F::Output>
+where
+    F: IntoFuture,
+{
+    match limit.max_time {
+        Some(duration) => {
+            let abort_duartion = Duration::from_millis(duration.as_millis() as u64 * 3 / 2);
+            match timeout(abort_duartion, future.into_future()).await {
+                Ok(result) => TimingStatus::InTime(result),
+                Err(_) => TimingStatus::Aborted(abort_duartion),
+            }
+        }
+        None => {
+            let result = future.into_future().await;
+            TimingStatus::InTime(result)
+        }
+    }
+}
