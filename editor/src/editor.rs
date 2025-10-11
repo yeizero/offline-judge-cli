@@ -64,6 +64,7 @@ pub struct Editor {
 }
 
 impl Editor {
+    // TODO: Make line number width dynamic based on the number of digits
     const LINE_NUMBER_WIDTH: usize = 7; // "XXXX │ " (4 digits + space + | + space)
     const STATUS_BAR_HEIGHT: u16 = 1;
 
@@ -71,7 +72,6 @@ impl Editor {
     // Public API & Core Lifecycle
     //================================================================
 
-    /// create with empty rope
     pub fn new() -> Self {
         Self::from_rope(Rope::new())
     }
@@ -171,8 +171,6 @@ impl Editor {
                         self.is_dirty = true;
                     }
                     MouseEventKind::Up(event::MouseButton::Left) => {
-                        // 當滑鼠放開時，如果錨點和游標在同一個位置，
-                        // 意味著這只是一次點擊，而非拖曳選取，所以清除選取。
                         if self.selection_anchor == Some(self.cursor) {
                             self.selection_anchor = None;
                         }
@@ -227,19 +225,15 @@ impl Editor {
             CommandEffect::None
         };
 
-        // 1. 處理因文字修改觸發的髒行
         if let CommandEffect::TextChanged(start, old_count, new_count) = effect {
             let delta = self.update_height_cache(start, old_count, new_count);
             if delta != 0 {
-                // 高度變化，擠壓下方所有可見行
                 self.dirty_lines.mark(start..self.text.len_lines());
             } else {
-                // 高度不變，只重繪被修改的行
                 self.dirty_lines.mark(start..(start + new_count));
             }
         }
 
-        // 2. 處理因游標移動觸發的髒行
         if effect != CommandEffect::None {
             self.is_dirty = true;
             self.dirty_lines.mark(cursor_line_before);
@@ -599,7 +593,6 @@ impl Editor {
         let mut is_first_chunk_of_line = true;
         let mut char_offset_in_line = 0;
 
-        // 使用 enumerate() 來獲取 visual_offset_in_line
         for (visual_offset_in_line, visual_line_chunk) in
             line.chunk_by_width_cjk(content_width).enumerate()
         {
@@ -615,7 +608,6 @@ impl Editor {
                 break;
             }
 
-            // --- 繪製行號和清空行 ---
             queue!(
                 self.stdout,
                 MoveTo(0, screen_y),
@@ -633,45 +625,42 @@ impl Editor {
             let chunk_to_draw = visual_line_chunk.slice(..chunk_len);
 
             if chunk_to_draw.len_chars() == 0 {
-                if let Some((sel_start, sel_end)) = selection {
-                    // 檢查這個空行的位置 (chunk_abs_start) 是否在選取範圍內
-                    if chunk_abs_start >= sel_start && chunk_abs_start < sel_end {
-                        // 如果是，繪製一個反白的空格
-                        queue!(
-                            self.stdout,
-                            SetAttribute(Attribute::Reverse),
-                            Print(" "),
-                            SetAttribute(Attribute::Reset)
-                        )?;
-                    }
+                if let Some((sel_start, sel_end)) = selection
+                    && chunk_abs_start >= sel_start
+                    && chunk_abs_start < sel_end
+                {
+                    // 空行
+                    queue!(
+                        self.stdout,
+                        SetAttribute(Attribute::Reverse),
+                        Print(" "),
+                        SetAttribute(Attribute::Reset)
+                    )?;
                 }
-            } else {
-                // --- 分段式渲染邏輯 (適用於非空行) ---
-                if let Some((sel_start, sel_end)) = selection {
-                    let overlap_start = sel_start.max(chunk_abs_start);
-                    let overlap_end = sel_end.min(chunk_abs_start + chunk_len);
+            } else if let Some((sel_start, sel_end)) = selection {
+                let overlap_start = sel_start.max(chunk_abs_start);
+                let overlap_end = sel_end.min(chunk_abs_start + chunk_len);
 
-                    if overlap_start < overlap_end {
-                        // 有交集
-                        let chunk_sel_start = overlap_start - chunk_abs_start;
-                        let chunk_sel_end = overlap_end - chunk_abs_start;
+                if overlap_start < overlap_end {
+                    // 有交集
+                    let chunk_sel_start = overlap_start - chunk_abs_start;
+                    let chunk_sel_end = overlap_end - chunk_abs_start;
 
-                        queue!(self.stdout, Print(chunk_to_draw.slice(..chunk_sel_start)))?;
-                        queue!(self.stdout, SetAttribute(Attribute::Reverse))?;
-                        queue!(
-                            self.stdout,
-                            Print(chunk_to_draw.slice(chunk_sel_start..chunk_sel_end))
-                        )?;
-                        queue!(self.stdout, SetAttribute(Attribute::Reset))?;
-                        queue!(self.stdout, Print(chunk_to_draw.slice(chunk_sel_end..)))?;
-                    } else {
-                        // 無交集
-                        queue!(self.stdout, Print(chunk_to_draw))?;
-                    }
+                    queue!(self.stdout, Print(chunk_to_draw.slice(..chunk_sel_start)))?;
+                    queue!(self.stdout, SetAttribute(Attribute::Reverse))?;
+                    queue!(
+                        self.stdout,
+                        Print(chunk_to_draw.slice(chunk_sel_start..chunk_sel_end))
+                    )?;
+                    queue!(self.stdout, SetAttribute(Attribute::Reset))?;
+                    queue!(self.stdout, Print(chunk_to_draw.slice(chunk_sel_end..)))?;
                 } else {
-                    // 完全沒有選取
+                    // 無交集
                     queue!(self.stdout, Print(chunk_to_draw))?;
                 }
+            } else {
+                // 完全沒有選取
+                queue!(self.stdout, Print(chunk_to_draw))?;
             }
 
             char_offset_in_line += visual_line_chunk.len_chars();
@@ -1050,10 +1039,10 @@ impl Editor {
 
     fn screen_to_char_idx(&self, screen_x: u16, screen_y: u16) -> Option<usize> {
         if screen_y >= self.content_height() {
-            return None; // 點擊在狀態列或下方
+            return None;
         }
 
-        // --- Y 軸轉換 (此部分邏輯正確，保持不變) ---
+        // --- Y 軸轉換 ---
         let screen_top_abs_y = self.logical_to_absolute_visual(self.scroll_offset);
         let target_abs_y = screen_top_abs_y + screen_y as u32;
         let target_logical_pos = self.absolute_visual_to_logical(target_abs_y);
@@ -1063,13 +1052,13 @@ impl Editor {
             return Some(self.text.len_chars());
         }
 
-        // --- X 軸轉換 (重寫此部分邏輯) ---
+        // --- X 軸轉換 ---
         let line = self.text.line(logical_line_idx);
         let line_start_char_idx = self.text.line_to_char(logical_line_idx);
         let content_width = self.content_width();
 
         if (screen_x as usize) < Self::LINE_NUMBER_WIDTH {
-            return Some(line_start_char_idx); // 點擊行號，定位到行首
+            return Some(line_start_char_idx);
         }
         let target_visual_x = (screen_x as usize).saturating_sub(Self::LINE_NUMBER_WIDTH);
 
@@ -1077,34 +1066,26 @@ impl Editor {
         let mut current_visual_x = 0;
 
         for (char_offset, ch) in line.chars().enumerate() {
-            // 檢查是否已到達目標視覺行
             if current_visual_y == target_logical_pos.visual_offset_in_line {
-                // 在目標視覺行內，尋找 X 座標
-                // 比較 ch 的中點，使用者體驗更好
                 let char_width = ch.width_cjk().unwrap_or(1);
                 if current_visual_x + char_width / 2 >= target_visual_x {
                     return Some(line_start_char_idx + char_offset);
                 }
             }
 
-            // --- 無條件地、為每個字元更新視覺佈局 ---
             let char_width = ch.width_cjk().unwrap_or(1);
             if current_visual_x + char_width > content_width {
-                // 換行
                 current_visual_y += 1;
                 current_visual_x = char_width;
             } else {
-                // 不換行
                 current_visual_x += char_width;
             }
 
-            // 如果當前字元是換行符，迴圈會自然結束
             if ch == '\n' {
                 break;
             }
         }
 
-        // 如果遍歷完畢 (點擊在行尾空白處)，將游標定位到該邏輯行的內容末尾
         Some(line_start_char_idx + line.len_chars_without_ending())
     }
 
@@ -1163,32 +1144,24 @@ impl Editor {
     }
 
     fn logical_to_absolute_visual(&self, offset: ScrollOffset) -> u32 {
-        // 獲取該邏輯行之前所有行的總視覺高度
         let height_before = self.get_total_visual_height_between(0, offset.logical_line);
         height_before + offset.visual_offset_in_line as u32
     }
 
     fn absolute_visual_to_logical(&self, abs_visual_y: u32) -> ScrollOffset {
-        // 處理邊界情況：如果文件為空或 Y 為 0
         if self.text.len_lines() == 0 || abs_visual_y == 0 {
             return ScrollOffset::default();
         }
 
-        // 使用二分搜尋在 `cumulative_visual_heights` 中快速定位邏輯行。
-        // `binary_search` 會找到第一個 `>` 或 `==` 目標值的位置。
-        // `partition_point` 在這種情況下更直觀：找到第一個 `>` 目標值的位置。
         let logical_line = self
             .cumulative_visual_heights
             .partition_point(|&h| h <= abs_visual_y)
-            .saturating_sub(1); // partition_point 返回的是插入點，所以減1才是目標區間
+            .saturating_sub(1);
 
-        // 確保找到的行號不會越界
         let logical_line = logical_line.min(self.text.len_lines() - 1);
 
-        // 獲取該邏輯行之前的總視覺高度
         let height_before = self.get_total_visual_height_between(0, logical_line);
 
-        // 計算在該邏輯行內的視覺偏移
         let visual_offset_in_line = abs_visual_y.saturating_sub(height_before) as usize;
 
         ScrollOffset {

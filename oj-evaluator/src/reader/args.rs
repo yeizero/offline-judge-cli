@@ -123,7 +123,7 @@ pub struct TestInfo {
 }
 
 impl TestInfo {
-    pub fn with_config(&mut self, config: &EvaluatorConfig) {
+    pub fn merge_config(&mut self, config: &EvaluatorConfig) {
         if self.warmup_times.is_none() {
             self.warmup_times = config.warmup;
         }

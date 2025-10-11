@@ -50,7 +50,7 @@ async fn main() {
         println!("❌ [SE] {e}");
         process::exit(1);
     });
-    info.with_config(&config);
+    info.merge_config(&config);
 
     ensure_dir_exists(TEMP_DIR.as_path()).unwrap();
 
