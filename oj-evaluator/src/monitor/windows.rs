@@ -1,22 +1,23 @@
-use std::collections::{HashMap, HashSet};
+use std::mem;
 use std::process::Stdio;
 use std::time::Instant;
-use std::{mem, thread, time::Duration};
 
 use tokio::io::AsyncWriteExt;
-use windows::Win32::Foundation::{CloseHandle, E_FAIL, HANDLE, STILL_ACTIVE};
+use windows::Win32::Foundation::{CloseHandle, E_FAIL, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
 };
-use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    QueryInformationJobObject, SetInformationJobObject,
+};
 use windows::Win32::System::Threading::{
-    CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, GetExitCodeProcess, OpenProcess, OpenThread,
+    CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, OpenProcess, OpenThread,
     PROCESS_QUERY_INFORMATION, PROCESS_SET_QUOTA, PROCESS_TERMINATE, PROCESS_VM_READ, ResumeThread,
     THREAD_SUSPEND_RESUME,
 };
-use windows::core::{Error as WinError, Result as WinResult};
-
-use win32job::{ExtendedLimitInfo, Job};
+use windows::core::{Error as WinError, PCWSTR, Result as WinResult};
 
 use crate::{
     judge::verdict::Limitation,
@@ -57,7 +58,16 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
         let pid = child.id().unwrap();
         assert_ne!(pid, 0);
 
-        let monitor_task = create_memory_monitor(pid)?;
+        let job_object = JobObject::create()?;
+        job_object.set_extended_limit_info(&{
+            let mut extended_limit_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+
+            extended_limit_info.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+            extended_limit_info
+        })?;
+        job_object.assign_process(pid_to_process_handle(pid)?)?;
 
         resume_suspended_child_by_pid(pid)?;
 
@@ -70,7 +80,7 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
 
         let output_status = timeout_with_limit(self.limit, child.wait_with_output()).await;
         let elapsed_time = start_time.elapsed();
-        let memory = monitor_task.await?;
+        let memory = job_object.get_max_memory_usage();
 
         output_status.map_result(move |result| {
             let output = result?;
@@ -128,54 +138,58 @@ fn find_main_thread_id(pid: u32) -> WinResult<u32> {
     thread_id.ok_or_else(|| WinError::new(E_FAIL, "Main thread not found for PID."))
 }
 
-const CHECK_MEMORY_INTERVAL: Duration = Duration::from_millis(5);
-
-pub fn create_memory_monitor(pid: u32) -> anyhow::Result<tokio::task::JoinHandle<Option<usize>>> {
-    let job = apply_job_for_process(pid)?;
-
-    Ok(tokio::task::spawn_blocking(
-        move || monitor_job_memory_usage(job),
-    ))
+struct JobObject {
+    handle: HANDLE,
 }
 
-fn apply_job_for_process(pid: u32) -> anyhow::Result<Job> {
-    let handle = pid_to_process_handle(pid)?;
-    let job = Job::create_with_limit_info(ExtendedLimitInfo::new().limit_kill_on_job_close())?;
-
-    job.assign_process(handle.0 as isize)?;
-    Ok(job)
-}
-
-fn monitor_job_memory_usage(job: Job) -> Option<usize> {
-    let mut max_memory = 0;
-    let mut handles: HashMap<u32, ProcessHandle> = HashMap::new();
-
-    loop {
-        let pids = job.query_process_id_list().ok()?;
-        if pids.is_empty() {
-            break;
-        }
-
-        let current_pids: HashSet<u32> = pids.into_iter().map(|p| p.try_into().unwrap()).collect();
-
-        handles.retain(|&pid, _| current_pids.contains(&pid));
-
-        let mut memory_usage = 0;
-
-        for &pid in &current_pids {
-            let handle = handles.entry(pid).or_insert_with(|| {
-                ProcessHandle::open(pid).expect("Failed to open process handle")
-            });
-
-            memory_usage += get_memory_usage(handle).unwrap_or(0);
-        }
-
-        if memory_usage > max_memory {
-            max_memory = memory_usage;
-        }
-        thread::sleep(CHECK_MEMORY_INTERVAL);
+impl JobObject {
+    pub fn create() -> WinResult<Self> {
+        unsafe { CreateJobObjectW(None, PCWSTR::null()) }.map(|handle| Self { handle })
     }
-    Some(max_memory)
+
+    pub fn set_extended_limit_info(
+        &self,
+        info: &JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    ) -> WinResult<()> {
+        unsafe {
+            SetInformationJobObject(
+                self.handle,
+                JobObjectExtendedLimitInformation,
+                info as *const _ as *const std::ffi::c_void,
+                mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        }
+    }
+
+    pub fn assign_process(&self, proc_handle: HANDLE) -> WinResult<()> {
+        unsafe { AssignProcessToJobObject(self.handle, proc_handle) }
+    }
+
+    pub fn get_max_memory_usage(&self) -> Option<usize> {
+        let mut accounting_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        unsafe {
+            QueryInformationJobObject(
+                Some(self.handle),
+                JobObjectExtendedLimitInformation,
+                &mut accounting_info as *mut _ as *mut std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                None,
+            )
+            .is_ok()
+            .then_some(accounting_info.PeakJobMemoryUsed / 1024)
+        }
+    }
+}
+
+
+impl Drop for JobObject {
+    fn drop(&mut self) {
+        if !self.handle.is_invalid() {
+            unsafe {
+                let _ = CloseHandle(self.handle);
+            }
+        }
+    }
 }
 
 fn pid_to_process_handle(pid: u32) -> WinResult<HANDLE> {
@@ -185,54 +199,5 @@ fn pid_to_process_handle(pid: u32) -> WinResult<HANDLE> {
             false,
             pid,
         )
-    }
-}
-
-fn get_memory_usage(handle: &ProcessHandle) -> Option<usize> {
-    if !handle.is_alive() {
-        return None;
-    }
-
-    let mut pmc = PROCESS_MEMORY_COUNTERS::default();
-    let cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-
-    unsafe {
-        GetProcessMemoryInfo(handle.raw(), &mut pmc, cb)
-            .is_ok()
-            .then_some(pmc.PeakWorkingSetSize / 1024)
-    }
-}
-
-struct ProcessHandle {
-    handle: HANDLE,
-}
-
-impl ProcessHandle {
-    pub fn open(pid: u32) -> anyhow::Result<Self, windows::core::Error> {
-        Ok(Self {
-            handle: pid_to_process_handle(pid)?,
-        })
-    }
-
-    pub fn raw(&self) -> HANDLE {
-        self.handle
-    }
-
-    pub fn is_alive(&self) -> bool {
-        unsafe {
-            let mut exit_code: u32 = 0;
-            GetExitCodeProcess(self.handle, &mut exit_code).is_ok()
-                && exit_code == STILL_ACTIVE.0 as u32
-        }
-    }
-}
-
-impl Drop for ProcessHandle {
-    fn drop(&mut self) {
-        unsafe {
-            if !self.handle.is_invalid() {
-                let _ = CloseHandle(self.handle);
-            }
-        }
     }
 }

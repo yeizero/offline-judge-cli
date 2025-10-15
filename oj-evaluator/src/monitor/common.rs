@@ -2,6 +2,7 @@ use crate::judge::verdict::Limitation;
 use shared::RawCommand;
 use std::{process::ExitStatus, time::Duration};
 use tokio::time::timeout;
+
 pub trait JudgeMonitor<'a>: Sized {
     /// Err as system error
     async fn load(
@@ -23,21 +24,12 @@ pub struct MonitorOutput {
 }
 
 pub enum TimingStatus<T> {
+    /// InTime means the program didn't abort, but it might still TLE.
     InTime(T),
     Aborted(Duration),
 }
 
 impl<T> TimingStatus<T> {
-    // pub fn map<R, F>(self, f: F) -> TimingStatus<R>
-    // where
-    //     F: FnOnce(T) -> R,
-    // {
-    //     match self {
-    //         Self::InTime(value) => TimingStatus::InTime(f(value)),
-    //         Self::Aborted(d) => TimingStatus::Aborted(d),
-    //     }
-    // }
-
     pub fn map_result<R, E, F>(self, f: F) -> Result<TimingStatus<R>, E>
     where
         F: FnOnce(T) -> Result<R, E>,
