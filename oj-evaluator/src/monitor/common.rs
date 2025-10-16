@@ -19,7 +19,6 @@ pub struct MonitorOutput {
     pub memory: Option<usize>,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
-    #[expect(dead_code)]
     pub status: ExitStatus,
 }
 
