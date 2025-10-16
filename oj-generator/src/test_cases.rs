@@ -210,10 +210,12 @@ fn input_text_or_editor(config: &GeneratorConfig, message: &str) -> Result<Strin
     if input == OPEN_EDITOR_MAGIC {
         let mut editor = Editor::new(message);
         let mut config_path: Option<PathBuf> = None;
+        let editor_path;
 
         match &config.editor {
             EditorChoice::Local(editor_config) => {
-                editor = editor.with_editor_command(OsStr::new("editor"));
+                editor_path = env::current_exe()?.parent().unwrap().join("editor");
+                editor = editor.with_editor_command(editor_path.as_os_str());
 
                 if let Some(keymap) = &editor_config.keymap {
                     let mut path: PathBuf = env::temp_dir();
@@ -239,7 +241,7 @@ fn input_text_or_editor(config: &GeneratorConfig, message: &str) -> Result<Strin
             }
         };
 
-        #[allow(clippy::manual_map)] // ownership problem
+        #[allow(clippy::manual_map)] // ownership problem (cannot return reference to temporary value)
         let args = if let Some(path) = &config_path {
             Some(&[OsStr::new("--input-fast"), path.as_os_str()])
         } else {
