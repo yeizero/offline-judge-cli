@@ -1,5 +1,5 @@
 use crate::judge::verdict::Limitation;
-use shared::RawCommand;
+use shared::ShellCommand;
 mod common;
 pub use common::{JudgeMonitor, TimingStatus};
 
@@ -19,7 +19,7 @@ mod no_memory;
 use no_memory::NoMemoryMonitor as Monitor;
 
 pub async fn load_monitor<'a>(
-    runner: &'a RawCommand,
+    runner: &'a ShellCommand,
     input: &'a str,
     limit: &'a Limitation,
 ) -> anyhow::Result<impl JudgeMonitor<'a>> {

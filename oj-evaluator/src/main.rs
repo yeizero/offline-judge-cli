@@ -31,7 +31,7 @@ use prettytable::{
     format::{FormatBuilder, LinePosition, LineSeparator},
 };
 use reader::{TestInfo, resolve_args};
-use shared::RawCommand;
+use shared::ShellCommand;
 use utils::PrettyNumber;
 
 use crate::{
@@ -67,7 +67,7 @@ async fn main() {
     }
 }
 
-async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Option<RawCommand> {
+async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Option<ShellCommand> {
     let profile = config
         .languages
         .iter()
@@ -96,7 +96,7 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
     }
 }
 
-async fn judge(info: TestInfo, runner: RawCommand) {
+async fn judge(info: TestInfo, runner: ShellCommand) {
     let mut limit = Limitation::default();
 
     if let Some(time) = info.max_time {
@@ -181,11 +181,7 @@ async fn judge(info: TestInfo, runner: RawCommand) {
     println!("🎯 {summary_info}");
 }
 
-fn execute(runner: RawCommand) {
-    let mut runner = runner.build().unwrap_or_else(|e| {
-        println!("❌ [SE] {e}");
-        process::exit(1);
-    });
+fn execute(runner: ShellCommand) {
     println!("⚙️ 正在運行程式");
-    let _ = runner.status();
+    let _ = runner.build().status();
 }

@@ -2,19 +2,19 @@ use crate::{
     judge::verdict::Limitation,
     monitor::common::{JudgeMonitor, MonitorOutput, TimingStatus, timeout_with_limit},
 };
-use shared::RawCommand;
+use shared::ShellCommand;
 use std::{process::Stdio, time::Instant};
 use tokio::io::AsyncWriteExt;
 
 pub struct NoMemoryMonitor<'a> {
-    runner: &'a RawCommand,
+    runner: &'a ShellCommand,
     input: &'a str,
     limit: &'a Limitation,
 }
 
 impl<'a> JudgeMonitor<'a> for NoMemoryMonitor<'a> {
     async fn load(
-        runner: &'a RawCommand,
+        runner: &'a ShellCommand,
         input: &'a str,
         limit: &'a Limitation,
     ) -> anyhow::Result<Self> {

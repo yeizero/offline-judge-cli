@@ -23,17 +23,17 @@ use crate::{
     judge::verdict::Limitation,
     monitor::common::{JudgeMonitor, MonitorOutput, TimingStatus, timeout_with_limit},
 };
-use shared::RawCommand;
+use shared::ShellCommand;
 
 pub struct WindowsMonitor<'a> {
-    runner: &'a RawCommand,
+    runner: &'a ShellCommand,
     input: &'a str,
     limit: &'a Limitation,
 }
 
 impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
     async fn load(
-        runner: &'a RawCommand,
+        runner: &'a ShellCommand,
         input: &'a str,
         limit: &'a Limitation,
     ) -> anyhow::Result<Self> {
@@ -47,7 +47,7 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
     async fn execute(&mut self) -> anyhow::Result<TimingStatus<MonitorOutput>> {
         let mut child = self
             .runner
-            .build_tokio()?
+            .build_tokio()
             .kill_on_drop(true)
             .creation_flags((CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT).0)
             .stdin(Stdio::piped())

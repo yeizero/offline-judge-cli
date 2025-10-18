@@ -1,12 +1,12 @@
 use crate::judge::verdict::Limitation;
-use shared::RawCommand;
+use shared::ShellCommand;
 use std::{process::ExitStatus, time::Duration};
 use tokio::time::timeout;
 
 pub trait JudgeMonitor<'a>: Sized {
     /// Err as system error
     async fn load(
-        runner: &'a RawCommand,
+        runner: &'a ShellCommand,
         input: &'a str,
         limit: &'a Limitation,
     ) -> anyhow::Result<Self>;

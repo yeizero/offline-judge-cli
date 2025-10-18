@@ -1,4 +1,4 @@
-use shared::RawCommand;
+use shared::ShellCommand;
 
 use crate::judge::comparison::{StyledComparison, compare_styled};
 use crate::judge::verdict::{JudgeStatus, JudgeVerdict, Limitation, TleType};
@@ -14,7 +14,7 @@ pub mod verdict;
 const INFO_SPACE: usize = 30;
 
 pub async fn evaluate<'a>(
-    runner: &'a RawCommand,
+    runner: &'a ShellCommand,
     input: &'a str,
     ans: &'a str,
     limit: &Limitation,
@@ -30,7 +30,7 @@ pub async fn evaluate<'a>(
 }
 
 async fn evaluate_with_system_error<'a>(
-    runner: &'a RawCommand,
+    runner: &'a ShellCommand,
     input: &'a str,
     ans: &'a str,
     limit: &Limitation,

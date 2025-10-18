@@ -1,5 +1,6 @@
-use shared::RawCommand;
+use shared::ShellCommand;
 use std::collections::HashMap;
+use std::io;
 use std::path::Path;
 
 use crate::config::TEMP_DIR;
@@ -9,12 +10,15 @@ use crate::utils::TEMP_FILE_EXE;
 
 type Placeholders<'a> = HashMap<&'a str, &'a str>;
 
-fn build_command_from_template(template: &str, placeholders: &Placeholders) -> RawCommand {
+fn build_command_from_template(
+    template: &str,
+    placeholders: &Placeholders,
+) -> io::Result<ShellCommand> {
     let mut final_command_str = template.to_string();
     for (key, value) in placeholders {
         final_command_str = final_command_str.replace(&format!("{{{key}}}"), value);
     }
-    RawCommand::new(final_command_str)
+    ShellCommand::parse_str(&final_command_str)
 }
 
 /// 根據原始碼檔案準備一個最終可執行的指令。
@@ -33,7 +37,7 @@ fn build_command_from_template(template: &str, placeholders: &Placeholders) -> R
 pub async fn prepare_command<'a>(
     file_path: &'a str,
     lang_profile: &'a LanguageProfile,
-) -> Result<RawCommand, CompileError<'a>> {
+) -> Result<ShellCommand, CompileError<'a>> {
     let source_path_normalized = file_path.replace('\\', "/");
 
     if let Some(compile_instruction) = &lang_profile.compile {
@@ -70,8 +74,8 @@ pub async fn prepare_command<'a>(
 
         let mut compile_cmd =
             build_command_from_template(&compile_instruction.command, &placeholders)
-                .build_tokio()
-                .map_err(|e| CompileError::SE(e.to_string().into()))?;
+                .map_err(|e| CompileError::SE(format!("Failed to parse command: {e}").into()))?
+                .build_tokio();
 
         let compile_status = compile_cmd.status().await.map_err(|e| {
             CompileError::SE(
@@ -88,21 +92,23 @@ pub async fn prepare_command<'a>(
         }
 
         if let Some(run_instruction) = &lang_profile.run {
-            Ok(build_command_from_template(
-                &run_instruction.command,
-                &placeholders,
-            ))
+            Ok(
+                build_command_from_template(&run_instruction.command, &placeholders).map_err(
+                    |e| CompileError::SE(format!("Failed to parse command: {e}").into()),
+                )?,
+            )
         } else {
-            Ok(RawCommand::new(output_path_normalized))
+            Ok(ShellCommand::parse_str(&output_path_normalized)
+                .map_err(|e| CompileError::SE(format!("Failed to parse command: {e}").into()))?)
         }
     } else if let Some(run_instruction) = &lang_profile.run {
         let mut placeholders = Placeholders::new();
         placeholders.insert("source", &source_path_normalized);
 
-        Ok(build_command_from_template(
-            &run_instruction.command,
-            &placeholders,
-        ))
+        Ok(
+            build_command_from_template(&run_instruction.command, &placeholders)
+                .map_err(|e| CompileError::SE(format!("Failed to parse command: {e}").into()))?,
+        )
     } else {
         Err(CompileError::SE(
             format!(

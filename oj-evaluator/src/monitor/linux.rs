@@ -13,19 +13,19 @@ use crate::{
     judge::verdict::Limitation,
     monitor::common::{JudgeMonitor, MonitorOutput, TimingStatus, timeout_with_limit},
 };
-use shared::RawCommand;
+use shared::ShellCommand;
 use std::{process::Stdio, time::Instant};
 use tokio::io::AsyncWriteExt;
 
 pub struct LinuxMonitor<'a> {
-    runner: &'a RawCommand,
+    runner: &'a ShellCommand,
     input: &'a str,
     limit: &'a Limitation,
 }
 
 impl<'a> JudgeMonitor<'a> for LinuxMonitor<'a> {
     async fn load(
-        runner: &'a RawCommand,
+        runner: &'a ShellCommand,
         input: &'a str,
         limit: &'a Limitation,
     ) -> anyhow::Result<Self> {
@@ -123,8 +123,8 @@ impl CgroupJob {
         (max_usage_in_bytes / 1024).try_into().ok()
     }
 
-    pub fn spawn_in_cgroup(&self, runner: &RawCommand) -> anyhow::Result<Child> {
-        let mut cmd = runner.build_tokio()?;
+    pub fn spawn_in_cgroup(&self, runner: &ShellCommand) -> anyhow::Result<Child> {
+        let mut cmd = runner.build_tokio();
 
         cmd.kill_on_drop(true)
             .stdin(Stdio::piped())
