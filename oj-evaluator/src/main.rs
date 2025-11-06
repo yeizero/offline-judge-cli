@@ -15,11 +15,16 @@ mod compile;
 mod config;
 mod judge;
 mod logger;
-mod reader;
 mod monitor;
+mod reader;
 mod utils;
 
-use std::process;
+use std::{
+    io::{Write, stdout}, process, sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    }, time::{Duration, Instant}
+};
 
 use compile::prepare_command;
 use judge::{
@@ -80,11 +85,28 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
         return None;
     };
 
-    if profile.compile.is_some() {
-        println!("🔨 正在編譯檔案");
-    }
+    let need_timer = profile.compile.is_some();
 
-    match prepare_command(&info.file, profile).await {
+    let is_timer_stop = Arc::new(AtomicBool::new(false));
+    let is_timer_stop_read = Arc::clone(&is_timer_stop);
+    let is_timer_stop_write = Arc::clone(&is_timer_stop);
+    
+    let timer_task = tokio::spawn(async move {
+        if !need_timer { return };
+        let timer = Instant::now();
+        while !is_timer_stop_read.load(Ordering::Relaxed) {
+            print!("\r🔨 正在編譯檔案 / {:.2}s", timer.elapsed().as_secs_f64());
+            stdout().flush().unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
+
+    let cmd = match prepare_command(&info.file, profile, move || {
+        println!();
+        is_timer_stop_write.store(true, Ordering::Relaxed)
+    })
+    .await
+    {
         Ok(i) => Some(i),
         Err(e) => {
             match e {
@@ -93,7 +115,14 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
             };
             None
         }
+    };
+
+    timer_task.abort();
+    if !is_timer_stop.load(Ordering::Relaxed) {
+        println!()
     }
+
+    cmd
 }
 
 async fn judge(info: TestInfo, runner: ShellCommand) {

@@ -1,7 +1,12 @@
 use shared::ShellCommand;
 use std::collections::HashMap;
-use std::io;
+use std::io::{self};
 use std::path::Path;
+use std::process::{ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command as TokioCommand;
 
 use crate::config::TEMP_DIR;
 use crate::judge::verdict::CompileError;
@@ -21,6 +26,78 @@ fn build_command_from_template(
     ShellCommand::parse_str(&final_command_str)
 }
 
+async fn run_command_with_onetime_callback<F>(
+    cmd: &mut TokioCommand,
+    on_first_output: F,
+) -> io::Result<ExitStatus>
+where
+    F: FnMut() + Send + 'static,
+{
+    let has_called_back = Arc::new(AtomicBool::new(false));
+
+    let callback = Arc::new(Mutex::new(on_first_output));
+
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+
+    let stdout = child.stdout.take().expect("Failed to open stdout");
+    let stderr = child.stderr.take().expect("Failed to open stderr");
+
+    let stdout_flag = Arc::clone(&has_called_back);
+    let stdout_callback = Arc::clone(&callback);
+    let stdout_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout);
+        let mut parent_stdout = tokio::io::stdout();
+
+        let mut buf = [0u8; 1024];
+        while let Ok(bytes_read) = reader.read(&mut buf).await {
+            if bytes_read == 0 {
+                break;
+            }
+
+            if stdout_flag
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                let mut cb = stdout_callback.lock().unwrap();
+                (*cb)();
+            }
+
+            parent_stdout.write_all(&buf[..bytes_read]).await.unwrap();
+        }
+    });
+
+    let stderr_flag = Arc::clone(&has_called_back);
+    let stderr_callback = Arc::clone(&callback);
+    let stderr_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr);
+        let mut parent_stderr = tokio::io::stderr();
+
+        let mut buf = [0u8; 1024];
+        while let Ok(bytes_read) = reader.read(&mut buf).await {
+            if bytes_read == 0 {
+                break;
+            }
+
+            if stderr_flag
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                let mut cb = stderr_callback.lock().unwrap();
+                (*cb)();
+            }
+
+            parent_stderr.write_all(&buf[..bytes_read]).await.unwrap();
+        }
+    });
+
+    let status = child.wait().await?;
+
+    stdout_task.await.unwrap();
+    stderr_task.await.unwrap();
+
+    Ok(status)
+}
+
 /// 根據原始碼檔案準備一個最終可執行的指令。
 ///
 /// 對於編譯型語言，此函式會執行編譯，並在成功後回傳一個執行已編譯產物的指令。
@@ -34,10 +111,15 @@ fn build_command_from_template(
 /// # Returns
 /// * `Ok(Command)` - 一個準備好執行的 `Command`。
 /// * `Err(CompileError)` - 如果發生系統錯誤或編譯失敗。
-pub async fn prepare_command<'a>(
+pub async fn prepare_command<'a, F>(
     file_path: &'a str,
     lang_profile: &'a LanguageProfile,
-) -> Result<ShellCommand, CompileError<'a>> {
+    on_compile_output_start: F, // 參數名稱也改得更貼切
+) -> Result<ShellCommand, CompileError<'a>>
+where
+    // F 現在不接收參數，且需要 Send + 'static 以跨越 .await 邊界
+    F: FnMut() + Send + 'static,
+{
     let source_path_normalized = file_path.replace('\\', "/");
 
     if let Some(compile_instruction) = &lang_profile.compile {
@@ -77,15 +159,19 @@ pub async fn prepare_command<'a>(
                 .map_err(|e| CompileError::SE(format!("Failed to parse command: {e}").into()))?
                 .build_tokio();
 
-        let compile_status = compile_cmd.status().await.map_err(|e| {
-            CompileError::SE(
-                format!(
-                    "Error executing '{}' for compilation: {e}",
-                    compile_cmd.as_std().get_program().to_str().unwrap()
-                )
-                .into(),
-            )
-        })?;
+        let compile_status =
+            run_command_with_onetime_callback(&mut compile_cmd, on_compile_output_start)
+                .await
+                .map_err(|e| {
+                    let program_name = compile_cmd
+                        .as_std()
+                        .get_program()
+                        .to_string_lossy()
+                        .into_owned();
+                    CompileError::SE(
+                        format!("Error executing '{}' for compilation: {e}", program_name).into(),
+                    )
+                })?;
 
         if !compile_status.success() {
             return Err(CompileError::CE("Failed to compile source code.".into()));
