@@ -6,4 +6,7 @@ use std::sync::LazyLock;
 pub static TEMP_DIR: LazyLock<PathBuf> =
     LazyLock::new(|| env::temp_dir().join(env!("CARGO_PKG_NAME")));
 
+pub static KEEP_FILE: LazyLock<PathBuf> =
+    LazyLock::new(|| TEMP_DIR.join(".keep"));
+
 pub const NUMBER_FORMAT: Locale = Locale::en;

@@ -44,7 +44,7 @@ use utils::PrettyNumber;
 
 use crate::{
     config::TEMP_DIR,
-    reader::{EvaluatorConfig, ensure_dir_exists, read_config},
+    reader::{EvaluatorConfig, FileCacheState, ensure_dir_exists, read_config},
 };
 
 #[tokio::main]
@@ -88,8 +88,20 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
         return None;
     };
 
-    if profile.compile.is_none() {
-        return match prepare_command(&info.file, profile, || {}).await {
+    let cache_state = match FileCacheState::new(&info.file) {
+        Ok(state) => state,
+        Err(e) => {
+            println!("{e}");
+            return None;
+        }
+    };
+
+    if profile.compile.is_none() || cache_state.is_fresh() {
+        if profile.compile.is_some() {
+            println!("📦 重複使用編譯檔案");
+        }
+
+        return match prepare_command(&info.file, profile, true, || {}).await {
             Ok(cmd) => Some(cmd),
             Err(e) => {
                 match e {
@@ -108,7 +120,9 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
             let timer = Instant::now();
             while !is_timer_stop_read.load(Ordering::Relaxed) {
                 print!("\r🔨 正在編譯檔案 / {:.2}s", timer.elapsed().as_secs_f64());
-                let _ = stdout().flush().inspect_err(|e| log::debug!("Flush Error: {e}"));
+                let _ = stdout()
+                    .flush()
+                    .inspect_err(|e| log::debug!("Flush Error: {e}"));
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         })
@@ -116,7 +130,7 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
 
     let result = {
         let is_timer_stop_write = Arc::clone(&is_timer_stop);
-        prepare_command(&info.file, profile, move || {
+        prepare_command(&info.file, profile, false, move || {
             println!();
             is_timer_stop_write.store(true, Ordering::Relaxed);
         })
@@ -131,6 +145,10 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
     }
 
     let _ = timer_task.await;
+
+    let _ = cache_state
+    .save()
+    .inspect_err(|e| log::debug!("Write cache failed {e}"));
 
     match result {
         Ok(cmd) => Some(cmd),

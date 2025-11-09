@@ -125,48 +125,44 @@ where
 pub async fn prepare_command<'a, F>(
     file_path: &'a str,
     lang_profile: &'a LanguageProfile,
-    on_compile_output_start: F,
+    skip_compilation: bool,
+    on_compile_output_start: F, // mut is needed here
 ) -> Result<ShellCommand, CompileError<'a>>
 where
     F: FnMut() + Send + 'static,
 {
+    let source_path = Path::new(file_path);
     let source_path_normalized = file_path.replace('\\', "/");
 
-    if let Some(compile_instruction) = &lang_profile.compile {
-        let source_path = Path::new(file_path);
-        let source_filename_stem = source_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| {
-                CompileError::SE(format!("Invalid source file path: {file_path}").into())
-            })?;
+    let source_filename_stem = source_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| CompileError::SE(format!("Invalid source file path: {file_path}").into()))?;
 
-        let mut output_path = TEMP_DIR.clone();
+    let mut output_path = TEMP_DIR.clone();
+    let output_folder_normalized = output_path
+        .to_str()
+        .ok_or_else(|| CompileError::SE("Failed to construct a valid UTF-8 output path.".into()))?
+        .replace('\\', "/");
 
-        let output_folder_normalized = output_path
-            .to_str()
-            .ok_or_else(|| {
-                CompileError::SE("Failed to construct a valid UTF-8 output path.".into())
-            })?
-            .replace('\\', "/");
+    output_path.push(TEMP_FILE_EXE);
+    let output_path_str = output_path
+        .to_str()
+        .ok_or_else(|| CompileError::SE("Failed to construct a valid UTF-8 output path.".into()))?;
+    let output_path_normalized = output_path_str.replace('\\', "/");
 
-        output_path.push(TEMP_FILE_EXE);
+    let mut placeholders = Placeholders::new();
+    placeholders.insert("source", &source_path_normalized);
+    placeholders.insert("output", &output_path_normalized);
+    placeholders.insert("output_folder", &output_folder_normalized);
+    placeholders.insert("source_stem", source_filename_stem);
 
-        let output_path_str = output_path.to_str().ok_or_else(|| {
-            CompileError::SE("Failed to construct a valid UTF-8 output path.".into())
-        })?;
-
-        let output_path_normalized = output_path_str.replace('\\', "/");
-
-        let mut placeholders = Placeholders::new();
-        placeholders.insert("source", &source_path_normalized);
-        placeholders.insert("output", &output_path_normalized);
-        placeholders.insert("output_folder", &output_folder_normalized);
-        placeholders.insert("source_stem", source_filename_stem);
-
+    if !skip_compilation && let Some(compile_instruction) = &lang_profile.compile {
         let mut compile_cmd =
             build_command_from_template(&compile_instruction.command, &placeholders)
-                .map_err(|e| CompileError::SE(format!("Failed to parse command: {e}").into()))?
+                .map_err(|e| {
+                    CompileError::SE(format!("Failed to parse compile command: {e}").into())
+                })?
                 .build_tokio();
 
         let compile_status =
@@ -186,25 +182,15 @@ where
         if !compile_status.success() {
             return Err(CompileError::CE("Failed to compile source code.".into()));
         }
+    }
 
-        if let Some(run_instruction) = &lang_profile.run {
-            Ok(
-                build_command_from_template(&run_instruction.command, &placeholders).map_err(
-                    |e| CompileError::SE(format!("Failed to parse command: {e}").into()),
-                )?,
-            )
-        } else {
-            Ok(ShellCommand::parse_str(&output_path_normalized)
-                .map_err(|e| CompileError::SE(format!("Failed to parse command: {e}").into()))?)
-        }
-    } else if let Some(run_instruction) = &lang_profile.run {
-        let mut placeholders = Placeholders::new();
-        placeholders.insert("source", &source_path_normalized);
-
-        Ok(
-            build_command_from_template(&run_instruction.command, &placeholders)
-                .map_err(|e| CompileError::SE(format!("Failed to parse command: {e}").into()))?,
-        )
+    if let Some(run_instruction) = &lang_profile.run {
+        build_command_from_template(&run_instruction.command, &placeholders)
+            .map_err(|e| CompileError::SE(format!("Failed to parse run command: {e}").into()))
+    } else if lang_profile.compile.is_some() {
+        ShellCommand::parse_str(&output_path_normalized).map_err(|e| {
+            CompileError::SE(format!("Failed to parse output path as command: {e}").into())
+        })
     } else {
         Err(CompileError::SE(
             format!(
