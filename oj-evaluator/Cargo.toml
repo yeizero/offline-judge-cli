@@ -1,11 +1,11 @@
 [package]
 name = "oj-evaluator"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
-tokio = { version = "1.47.1", features = ["io-std", "io-util", "macros", "process", "rt-multi-thread", "time"] }
+tokio = { version = "1.47.1", features = ["io-std", "io-util", "macros", "process", "rt-multi-thread", "time", "sync"] }
 clap = { version = "4.5.32", features = ["derive"] }
 log = "0.4.27"
 simplelog = "0.12.2"

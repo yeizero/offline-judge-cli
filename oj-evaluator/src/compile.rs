@@ -3,10 +3,11 @@ use std::collections::HashMap;
 use std::io::{self};
 use std::path::Path;
 use std::process::{ExitStatus, Stdio};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command as TokioCommand;
+use tokio::sync::Mutex;
 
 use crate::config::TEMP_DIR;
 use crate::judge::verdict::CompileError;
@@ -34,35 +35,42 @@ where
     F: FnMut() + Send + 'static,
 {
     let has_called_back = Arc::new(AtomicBool::new(false));
-
     let callback = Arc::new(Mutex::new(on_first_output));
 
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
-    let stdout = child.stdout.take().expect("Failed to open stdout");
-    let stderr = child.stderr.take().expect("Failed to open stderr");
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
 
     let stdout_flag = Arc::clone(&has_called_back);
     let stdout_callback = Arc::clone(&callback);
     let stdout_task = tokio::spawn(async move {
         let mut reader = BufReader::new(stdout);
         let mut parent_stdout = tokio::io::stdout();
+        let mut buf = vec![0; 1024];
 
-        let mut buf = [0u8; 1024];
-        while let Ok(bytes_read) = reader.read(&mut buf).await {
-            if bytes_read == 0 {
-                break;
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(bytes_read) => {
+                    if stdout_flag
+                        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                        .is_ok()
+                    {
+                        let mut cb = stdout_callback.lock().await;
+                        (*cb)();
+                    }
+
+                    if let Err(e) = parent_stdout.write_all(&buf[..bytes_read]).await {
+                        log::debug!("Failed to write to parent stdout: {}", e);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Error reading from child stdout: {}", e);
+                    break;
+                }
             }
-
-            if stdout_flag
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
-                .is_ok()
-            {
-                let mut cb = stdout_callback.lock().unwrap();
-                (*cb)();
-            }
-
-            parent_stdout.write_all(&buf[..bytes_read]).await.unwrap();
         }
     });
 
@@ -71,29 +79,41 @@ where
     let stderr_task = tokio::spawn(async move {
         let mut reader = BufReader::new(stderr);
         let mut parent_stderr = tokio::io::stderr();
+        let mut buf = vec![0; 1024];
 
-        let mut buf = [0u8; 1024];
-        while let Ok(bytes_read) = reader.read(&mut buf).await {
-            if bytes_read == 0 {
-                break;
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(bytes_read) => {
+                    if stderr_flag
+                        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                        .is_ok()
+                    {
+                        let mut cb = stderr_callback.lock().await;
+                        (*cb)();
+                    }
+
+                    if let Err(e) = parent_stderr.write_all(&buf[..bytes_read]).await {
+                        log::debug!("Failed to write to parent stderr: {}", e);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Error reading from child stderr: {}", e);
+                    break;
+                }
             }
-
-            if stderr_flag
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
-                .is_ok()
-            {
-                let mut cb = stderr_callback.lock().unwrap();
-                (*cb)();
-            }
-
-            parent_stderr.write_all(&buf[..bytes_read]).await.unwrap();
         }
     });
 
     let status = child.wait().await?;
 
-    stdout_task.await.unwrap();
-    stderr_task.await.unwrap();
+    if let Err(e) = stdout_task.await {
+        log::warn!("Stdout reading task failed: {:?}", e);
+    }
+    if let Err(e) = stderr_task.await {
+        log::warn!("Stderr reading task failed: {:?}", e);
+    }
 
     Ok(status)
 }
@@ -102,22 +122,12 @@ where
 ///
 /// 對於編譯型語言，此函式會執行編譯，並在成功後回傳一個執行已編譯產物的指令。
 /// 對於直譯型語言，此函式直接回傳執行原始碼的指令。
-///
-/// # Arguments
-/// * `file_path` - 原始碼檔案的路徑。
-/// * `file_type` - 程式語言的枚舉。
-/// * `config` - 已載入的評測器設定。
-///
-/// # Returns
-/// * `Ok(Command)` - 一個準備好執行的 `Command`。
-/// * `Err(CompileError)` - 如果發生系統錯誤或編譯失敗。
 pub async fn prepare_command<'a, F>(
     file_path: &'a str,
     lang_profile: &'a LanguageProfile,
-    on_compile_output_start: F, // 參數名稱也改得更貼切
+    on_compile_output_start: F,
 ) -> Result<ShellCommand, CompileError<'a>>
 where
-    // F 現在不接收參數，且需要 Send + 'static 以跨越 .await 邊界
     F: FnMut() + Send + 'static,
 {
     let source_path_normalized = file_path.replace('\\', "/");

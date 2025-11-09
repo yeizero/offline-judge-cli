@@ -20,10 +20,13 @@ mod reader;
 mod utils;
 
 use std::{
-    io::{Write, stdout}, process, sync::{
+    io::{Write, stdout},
+    process,
+    sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-    }, time::{Duration, Instant}
+    },
+    time::{Duration, Instant},
 };
 
 use compile::prepare_command;
@@ -85,29 +88,52 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
         return None;
     };
 
-    let need_timer = profile.compile.is_some();
+    if profile.compile.is_none() {
+        return match prepare_command(&info.file, profile, || {}).await {
+            Ok(cmd) => Some(cmd),
+            Err(e) => {
+                match e {
+                    CompileError::SE(msg) => println!("❌ [SE] {msg}"),
+                    CompileError::CE(msg) => println!("❌ [CE] {msg}"),
+                };
+                None
+            }
+        };
+    }
 
     let is_timer_stop = Arc::new(AtomicBool::new(false));
-    let is_timer_stop_read = Arc::clone(&is_timer_stop);
-    let is_timer_stop_write = Arc::clone(&is_timer_stop);
-    
-    let timer_task = tokio::spawn(async move {
-        if !need_timer { return };
-        let timer = Instant::now();
-        while !is_timer_stop_read.load(Ordering::Relaxed) {
-            print!("\r🔨 正在編譯檔案 / {:.2}s", timer.elapsed().as_secs_f64());
-            stdout().flush().unwrap();
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    });
+    let timer_task = {
+        let is_timer_stop_read = Arc::clone(&is_timer_stop);
+        tokio::spawn(async move {
+            let timer = Instant::now();
+            while !is_timer_stop_read.load(Ordering::Relaxed) {
+                print!("\r🔨 正在編譯檔案 / {:.2}s", timer.elapsed().as_secs_f64());
+                let _ = stdout().flush().inspect_err(|e| log::debug!("Flush Error: {e}"));
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+    };
 
-    let cmd = match prepare_command(&info.file, profile, move || {
-        println!();
-        is_timer_stop_write.store(true, Ordering::Relaxed)
-    })
-    .await
+    let result = {
+        let is_timer_stop_write = Arc::clone(&is_timer_stop);
+        prepare_command(&info.file, profile, move || {
+            println!();
+            is_timer_stop_write.store(true, Ordering::Relaxed);
+        })
+        .await
+    };
+
+    if is_timer_stop
+        .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
     {
-        Ok(i) => Some(i),
+        println!();
+    }
+
+    let _ = timer_task.await;
+
+    match result {
+        Ok(cmd) => Some(cmd),
         Err(e) => {
             match e {
                 CompileError::SE(msg) => println!("❌ [SE] {msg}"),
@@ -115,14 +141,7 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
             };
             None
         }
-    };
-
-    timer_task.abort();
-    if !is_timer_stop.load(Ordering::Relaxed) {
-        println!()
     }
-
-    cmd
 }
 
 async fn judge(info: TestInfo, runner: ShellCommand) {
