@@ -41,7 +41,7 @@ use prettytable::{
 };
 use reader::{TestInfo, resolve_args};
 use shared::ShellCommand;
-use tokio::sync::Semaphore;
+use tokio::{sync::Semaphore, task::JoinSet, time::interval};
 use utils::PrettyNumber;
 
 use crate::{
@@ -232,60 +232,82 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
 
     let concurrency_limit = num_cpus::get();
     let semaphore = Arc::new(Semaphore::new(concurrency_limit));
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, JudgeVerdict)>(concurrency_limit * 2);
+    let mut join_set: JoinSet<(usize, JudgeVerdict)> = JoinSet::new();
 
     for (idx, case) in cases_list.iter().enumerate() {
-        let tx = tx.clone();
         let runner = Arc::clone(&runner_arc);
         let input = Arc::clone(&case.input);
         let answer = Arc::clone(&case.answer);
         let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
 
-        tokio::spawn(async move {
+        join_set.spawn(async move {
             let _permit = permit;
-            let result = evaluate(runner, input, answer, &limit).await;
-            if let Err(e) = tx.send((idx + 1, result)).await {
-                log::error!("Failed to send result for case {}: {}", idx + 1, e);
-            }
+            (idx + 1, evaluate(runner, input, answer, &limit).await)
         });
     }
-
-    drop(tx);
 
     let mut solving_round = 1;
     let mut waiting_verdict: HashMap<usize, JudgeVerdict> = HashMap::new();
 
+    let mut ticker: tokio::time::Interval = interval(Duration::from_millis(100));
+    let mut round_start_time = Instant::now();
+
     print_test_label(1);
+    loop {
+        tokio::select! {
+            Some(result) = join_set.join_next() => {
+                let (round, verd) = match result {
+                    Ok(i) => i,
+                    Err(e) => {
+                        log::error!("A judge task failed: {e}");
+                        return;
+                    }
+                };
+                waiting_verdict.insert(round, verd);
+                while let Some(verdict) = waiting_verdict.remove(&solving_round) {
+                    round_start_time = Instant::now();
 
-    while let Some((round, verd)) = rx.recv().await {
-        waiting_verdict.insert(round, verd);
-        while let Some(verdict) = waiting_verdict.remove(&solving_round) {
-            print_test_info(&verdict, &limit);
+                    print_test_info(&verdict, &limit);
 
-            report_table.add_row(Row::new(vec![
-                Cell::new(if verdict.is_accept() { "✅" } else { "❌" }),
-                Cell::new(&solving_round.to_string()),
-                Cell::new(&verdict.duration.map_or_else(
-                    || "Unknown".to_string(),
-                    |value| value.as_millis().prettify(),
-                )),
-                Cell::new(
-                    &verdict
-                        .memory
-                        .map_or_else(|| "Unknown".to_string(), |value| value.prettify()),
-                ),
-                Cell::new(verdict.status.to_str_short()),
-            ]));
+                    report_table.add_row(Row::new(vec![
+                        Cell::new(if verdict.is_accept() { "✅" } else { "❌" }),
+                        Cell::new(&solving_round.to_string()),
+                        Cell::new(&verdict.duration.map_or_else(
+                            || "Unknown".to_string(),
+                            |value| value.as_millis().prettify(),
+                        )),
+                        Cell::new(
+                            &verdict
+                                .memory
+                                .map_or_else(|| "Unknown".to_string(), |value| value.prettify()),
+                        ),
+                        Cell::new(verdict.status.to_str_short()),
+                    ]));
 
-            summary_info.update(verdict);
+                    summary_info.update(verdict);
 
-            solving_round += 1;
-            if solving_round < cases_list.len() {
-                print_test_label(solving_round);
+                    solving_round += 1;
+                    if solving_round <= test_rounds {
+                        print_test_label(solving_round);
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            _ = ticker.tick() => {
+                if solving_round <= test_rounds {
+                    let elapsed = round_start_time.elapsed();
+                    if elapsed > Duration::from_millis(250) {
+                        print!("執行中... {:.2}s\r", elapsed.as_secs_f64());
+                        std::io::stdout().flush().unwrap();
+                    }
+                } else {
+                    break;
+                }
             }
         }
     }
-
     println!(
         "\n📝 總結: {:>33}",
         format!(

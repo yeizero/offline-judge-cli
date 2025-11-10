@@ -1,4 +1,5 @@
 limit:
+  time: 10000
   memory: 500000
 cases:
 - input: ''
