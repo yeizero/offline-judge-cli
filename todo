@@ -1,0 +1,12 @@
+Evaluator:
+  NOTE: GetProcessTimes, CreateIoCompletionPort
+  ☐ 使用cpu時間計時 (linux)
+  ☐ 多線程評估測資
+  ☐ i18n
+  ☐ 考慮java不計算初始化時間和記憶體 @low
+  ☐ 讓編譯程式時保留顏色和遊標效果，預計用`portable_pty` @low
+  ✔ 使用cpu時間計時 (windows) @done(25-11-10 13:11)
+Generator:
+  ☐ i18n
+Editor:
+  ☐ 優化換行刷新算法 @low

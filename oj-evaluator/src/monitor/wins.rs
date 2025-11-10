@@ -1,6 +1,6 @@
 use std::mem;
 use std::process::Stdio;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::io::AsyncWriteExt;
 use windows::Win32::Foundation::{CloseHandle, E_FAIL, HANDLE};
@@ -9,7 +9,8 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 };
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
     QueryInformationJobObject, SetInformationJobObject,
 };
 use windows::Win32::System::Threading::{
@@ -79,13 +80,16 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
         }
 
         let output_status = timeout_with_limit(self.limit, child.wait_with_output()).await;
-        let elapsed_time = start_time.elapsed();
+        let duration = job_object.get_cpu_time().unwrap_or_else(|| {
+            log::debug!("Fallback to wall clock");
+            start_time.elapsed()
+        });
         let memory = job_object.get_max_memory_usage();
 
         output_status.map_result(move |result| {
             let output = result?;
             Ok(MonitorOutput {
-                duration: elapsed_time,
+                duration,
                 memory,
                 status: output.status,
                 stderr: output.stderr,
@@ -165,6 +169,24 @@ impl JobObject {
         unsafe { AssignProcessToJobObject(self.handle, proc_handle) }
     }
 
+    pub fn get_cpu_time(&self) -> Option<Duration> {
+        let mut accounting_info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        unsafe {
+            QueryInformationJobObject(
+                Some(self.handle),
+                JobObjectBasicAccountingInformation,
+                &mut accounting_info as *mut _ as *mut std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                None,
+            )
+            .is_ok()
+            .then_some({
+                let total_100ns = accounting_info.TotalUserTime + accounting_info.TotalKernelTime;
+                Duration::from_nanos(total_100ns as u64 * 100)
+            })
+        }
+    }
+
     pub fn get_max_memory_usage(&self) -> Option<usize> {
         let mut accounting_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         unsafe {
@@ -180,7 +202,6 @@ impl JobObject {
         }
     }
 }
-
 
 impl Drop for JobObject {
     fn drop(&mut self) {

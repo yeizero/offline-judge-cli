@@ -4,9 +4,9 @@ mod common;
 pub use common::{JudgeMonitor, TimingStatus};
 
 #[cfg(target_os = "windows")]
-mod windows;
+mod wins;
 #[cfg(target_os = "windows")]
-pub use windows::WindowsMonitor as Monitor;
+pub use wins::WindowsMonitor as Monitor;
 
 #[cfg(target_os = "linux")]
 mod linux;

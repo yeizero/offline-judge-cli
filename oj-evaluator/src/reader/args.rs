@@ -43,8 +43,8 @@ pub struct Args {
     #[arg(short('T'), long)]
     pub time: Option<u64>,
 
-    /// 啟用詳細輸出模式，顯示更多過程資訊。
-    /// Enable verbose mode to print more process information.
+    /// 啟用偵錯資訊
+    /// Enable verbose mode.
     #[arg(short, long)]
     pub verbose: bool,
 
