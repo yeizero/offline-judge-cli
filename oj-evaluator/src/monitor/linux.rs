@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use async_trait::async_trait;
 use cgroups_rs::Cgroup;
 use cgroups_rs::cgroup_builder::CgroupBuilder;
 use cgroups_rs::hierarchies;
@@ -23,6 +24,7 @@ pub struct LinuxMonitor<'a> {
     limit: &'a Limitation,
 }
 
+#[async_trait]
 impl<'a> JudgeMonitor<'a> for LinuxMonitor<'a> {
     async fn load(
         runner: &'a ShellCommand,
@@ -80,6 +82,7 @@ impl CgroupJob {
 
         match cgroup_result {
             Ok(cgroup) => {
+                log::debug!("cgruop ver {}", if cgroup.v2() {"2"} else {"1"});
                 full_path.push(cgroup.path());
                 Ok(Self {
                     cgroup: Some(cgroup),

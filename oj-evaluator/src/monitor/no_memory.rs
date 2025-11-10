@@ -2,6 +2,7 @@ use crate::{
     judge::verdict::Limitation,
     monitor::common::{JudgeMonitor, MonitorOutput, TimingStatus, timeout_with_limit},
 };
+use async_trait::async_trait;
 use shared::ShellCommand;
 use std::{process::Stdio, time::Instant};
 use tokio::io::AsyncWriteExt;
@@ -12,6 +13,7 @@ pub struct NoMemoryMonitor<'a> {
     limit: &'a Limitation,
 }
 
+#[async_trait]
 impl<'a> JudgeMonitor<'a> for NoMemoryMonitor<'a> {
     async fn load(
         runner: &'a ShellCommand,
