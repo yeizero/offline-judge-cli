@@ -6,6 +6,7 @@ use crate::monitor::{JudgeMonitor, TimingStatus, load_monitor};
 use crate::utils::{PrettyNumber, center_text};
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
+use std::sync::Arc;
 use std::{borrow::Cow, process::ExitStatus};
 
 mod comparison;
@@ -13,13 +14,13 @@ pub mod verdict;
 
 const INFO_SPACE: usize = 30;
 
-pub async fn evaluate<'a>(
-    runner: &'a ShellCommand,
-    input: &'a str,
-    ans: &'a str,
+pub async fn evaluate(
+    runner: Arc<ShellCommand>,
+    input: Arc<String>,
+    ans: Arc<String>,
     limit: &Limitation,
-) -> JudgeVerdict<'a> {
-    match evaluate_with_system_error(runner, input, ans, limit).await {
+) -> JudgeVerdict {
+    match evaluate_with_system_error(runner, Arc::clone(&input), &ans, limit).await {
         Ok(verdict) => verdict,
         Err(e) => {
             let mut verdict = JudgeVerdict::new(input);
@@ -29,16 +30,16 @@ pub async fn evaluate<'a>(
     }
 }
 
-async fn evaluate_with_system_error<'a>(
-    runner: &'a ShellCommand,
-    input: &'a str,
-    ans: &'a str,
+async fn evaluate_with_system_error(
+    runner: Arc<ShellCommand>,
+    input: Arc<String>,
+    ans: &str,
     limit: &Limitation,
-) -> anyhow::Result<JudgeVerdict<'a>> {
+) -> anyhow::Result<JudgeVerdict> {
     let ans: &str = ans.trim_end();
-    let mut verdict: JudgeVerdict<'a> = JudgeVerdict::new(input);
+    let mut verdict = JudgeVerdict::new(Arc::clone(&input));
 
-    let mut monitor = load_monitor(runner, input, limit).await?;
+    let mut monitor = load_monitor(&runner, &input, limit).await?;
 
     match monitor.execute().await {
         Ok(TimingStatus::InTime(output)) => {
@@ -161,7 +162,7 @@ fn get_error_exit_status_description(status: ExitStatus) -> Option<Cow<'static, 
     }
 }
 
-pub fn print_test_label(round: u32) {
+pub fn print_test_label(round: usize) {
     println!(
         "{}\n",
         center_text(&format!("Test {round}"), INFO_SPACE, "_")

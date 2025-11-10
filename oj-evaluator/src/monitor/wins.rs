@@ -2,6 +2,7 @@ use std::mem;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
 use windows::Win32::Foundation::{CloseHandle, E_FAIL, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -32,6 +33,7 @@ pub struct WindowsMonitor<'a> {
     limit: &'a Limitation,
 }
 
+#[async_trait]
 impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
     async fn load(
         runner: &'a ShellCommand,
@@ -145,6 +147,9 @@ fn find_main_thread_id(pid: u32) -> WinResult<u32> {
 struct JobObject {
     handle: HANDLE,
 }
+
+unsafe impl Send for JobObject {}
+unsafe impl Sync for JobObject {}
 
 impl JobObject {
     pub fn create() -> WinResult<Self> {

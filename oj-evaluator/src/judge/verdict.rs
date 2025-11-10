@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use owo_colors::OwoColorize;
@@ -7,6 +8,7 @@ use owo_colors::OwoColorize;
 use crate::judge::comparison::StyledDiff;
 use crate::utils::PrettyNumber;
 
+#[derive(Debug, Clone, Copy)]
 pub struct Limitation {
     pub max_memory: Option<usize>,
     pub max_time: Option<Duration>,
@@ -33,15 +35,15 @@ impl Default for Limitation {
 }
 
 #[derive(Debug)]
-pub struct JudgeVerdict<'a> {
+pub struct JudgeVerdict {
     pub status: JudgeStatus,
-    pub input: &'a str,
+    pub input: Arc<String>,
     pub duration: Option<Duration>,
     pub memory: Option<usize>,
 }
 
-impl<'a> JudgeVerdict<'a> {
-    pub fn new(input: &'a str) -> Self {
+impl JudgeVerdict {
+    pub fn new(input: Arc<String>) -> Self {
         Self {
             status: JudgeStatus::SE(anyhow::anyhow!("status is not handed")),
             input,

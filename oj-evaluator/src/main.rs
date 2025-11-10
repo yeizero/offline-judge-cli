@@ -20,6 +20,7 @@ mod reader;
 mod utils;
 
 use std::{
+    collections::HashMap,
     io::{Write, stdout},
     process,
     sync::{
@@ -40,10 +41,12 @@ use prettytable::{
 };
 use reader::{TestInfo, resolve_args};
 use shared::ShellCommand;
+use tokio::sync::Semaphore;
 use utils::PrettyNumber;
 
 use crate::{
     config::TEMP_DIR,
+    judge::verdict::JudgeVerdict,
     reader::{EvaluatorConfig, FileCacheState, ensure_dir_exists, read_config},
 };
 
@@ -147,8 +150,8 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
     let _ = timer_task.await;
 
     let _ = cache_state
-    .save()
-    .inspect_err(|e| log::debug!("Write cache failed {e}"));
+        .save()
+        .inspect_err(|e| log::debug!("Write cache failed {e}"));
 
     match result {
         Ok(cmd) => Some(cmd),
@@ -160,6 +163,11 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
             None
         }
     }
+}
+
+struct ArcCases {
+    input: Arc<String>,
+    answer: Arc<String>,
 }
 
 async fn judge(info: TestInfo, runner: ShellCommand) {
@@ -175,7 +183,6 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
 
     let test_rounds: usize = info.cases.len();
     let mut summary_info = SummaryInfo::default();
-    let mut current_test_round: u32 = 0;
 
     let mut report_table = Table::new();
     report_table.set_format(
@@ -198,39 +205,85 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
         Cell::new("結果"),
     ]));
 
+    let runner_arc = Arc::new(runner);
+    let cases_list: Vec<ArcCases> = info
+        .cases
+        .into_iter()
+        .map(|case| ArcCases {
+            input: Arc::new(case.input),
+            answer: Arc::new(case.answer),
+        })
+        .collect();
+
     if let Some(warmup) = info.warmup_times
         && warmup > 0
-        && let Some(case) = info.cases.first()
+        && let Some(case) = cases_list.first()
     {
         for _ in 0..warmup {
-            evaluate(&runner, &case.input, &case.answer, &limit).await;
+            evaluate(
+                Arc::clone(&runner_arc),
+                Arc::clone(&case.input),
+                Arc::clone(&case.answer),
+                &limit,
+            )
+            .await;
         }
     }
 
-    for case in info.cases.iter() {
-        current_test_round += 1;
-        print_test_label(current_test_round);
+    let concurrency_limit = num_cpus::get();
+    let semaphore = Arc::new(Semaphore::new(concurrency_limit));
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, JudgeVerdict)>(concurrency_limit * 2);
 
-        let verdict = evaluate(&runner, &case.input, &case.answer, &limit).await;
+    for (idx, case) in cases_list.iter().enumerate() {
+        let tx = tx.clone();
+        let runner = Arc::clone(&runner_arc);
+        let input = Arc::clone(&case.input);
+        let answer = Arc::clone(&case.answer);
+        let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
 
-        print_test_info(&verdict, &limit);
+        tokio::spawn(async move {
+            let _permit = permit;
+            let result = evaluate(runner, input, answer, &limit).await;
+            if let Err(e) = tx.send((idx + 1, result)).await {
+                log::error!("Failed to send result for case {}: {}", idx + 1, e);
+            }
+        });
+    }
 
-        report_table.add_row(Row::new(vec![
-            Cell::new(if verdict.is_accept() { "✅" } else { "❌" }),
-            Cell::new(&current_test_round.to_string()),
-            Cell::new(&verdict.duration.map_or_else(
-                || "Unknown".to_string(),
-                |value| value.as_millis().prettify(),
-            )),
-            Cell::new(
-                &verdict
-                    .memory
-                    .map_or_else(|| "Unknown".to_string(), |value| value.prettify()),
-            ),
-            Cell::new(verdict.status.to_str_short()),
-        ]));
+    drop(tx);
 
-        summary_info.update(verdict);
+    let mut solving_round = 1;
+    let mut waiting_verdict: HashMap<usize, JudgeVerdict> = HashMap::new();
+
+    print_test_label(1);
+
+    while let Some((round, verd)) = rx.recv().await {
+        waiting_verdict.insert(round, verd);
+        while let Some(verdict) = waiting_verdict.remove(&solving_round) {
+            print_test_info(&verdict, &limit);
+
+            report_table.add_row(Row::new(vec![
+                Cell::new(if verdict.is_accept() { "✅" } else { "❌" }),
+                Cell::new(&solving_round.to_string()),
+                Cell::new(&verdict.duration.map_or_else(
+                    || "Unknown".to_string(),
+                    |value| value.as_millis().prettify(),
+                )),
+                Cell::new(
+                    &verdict
+                        .memory
+                        .map_or_else(|| "Unknown".to_string(), |value| value.prettify()),
+                ),
+                Cell::new(verdict.status.to_str_short()),
+            ]));
+
+            summary_info.update(verdict);
+
+            solving_round += 1;
+            if solving_round < cases_list.len() {
+                print_test_label(solving_round);
+            }
+        }
     }
 
     println!(

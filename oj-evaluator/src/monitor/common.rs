@@ -1,8 +1,10 @@
 use crate::judge::verdict::Limitation;
+use async_trait::async_trait;
 use shared::ShellCommand;
 use std::{process::ExitStatus, time::Duration};
 use tokio::time::timeout;
 
+#[async_trait]
 pub trait JudgeMonitor<'a>: Sized {
     /// Err as system error
     async fn load(
