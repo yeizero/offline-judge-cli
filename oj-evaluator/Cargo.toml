@@ -1,11 +1,11 @@
 [package]
 name = "oj-evaluator"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
-tokio = { version = "1.47.1", features = ["io-util", "macros", "process", "rt-multi-thread", "time"] }
+tokio = { version = "1.47.1", features = ["io-std", "io-util", "macros", "process", "rt-multi-thread", "time", "sync"] }
 clap = { version = "4.5.32", features = ["derive"] }
 log = "0.4.27"
 simplelog = "0.12.2"
@@ -17,12 +17,14 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_yml = "0.0.12"
 anyhow = "1.0.100"
 either = "1.15.0"
+rkyv = "0.8.12"
+async-trait = "0.1.89"
+num_cpus = "1.17.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.59.0", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
-win32job = "2.0.3"
+windows = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects"] }
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 cgroups-rs = "0.3.4"
 rand = "0.9.1"
 libc = "0.2.177"

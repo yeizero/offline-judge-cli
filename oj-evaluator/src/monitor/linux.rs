@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use async_trait::async_trait;
 use cgroups_rs::Cgroup;
 use cgroups_rs::cgroup_builder::CgroupBuilder;
 use cgroups_rs::hierarchies;
@@ -13,19 +14,20 @@ use crate::{
     judge::verdict::Limitation,
     monitor::common::{JudgeMonitor, MonitorOutput, TimingStatus, timeout_with_limit},
 };
-use shared::RawCommand;
+use shared::ShellCommand;
 use std::{process::Stdio, time::Instant};
 use tokio::io::AsyncWriteExt;
 
 pub struct LinuxMonitor<'a> {
-    runner: &'a RawCommand,
+    runner: &'a ShellCommand,
     input: &'a str,
     limit: &'a Limitation,
 }
 
+#[async_trait]
 impl<'a> JudgeMonitor<'a> for LinuxMonitor<'a> {
     async fn load(
-        runner: &'a RawCommand,
+        runner: &'a ShellCommand,
         input: &'a str,
         limit: &'a Limitation,
     ) -> anyhow::Result<Self> {
@@ -80,6 +82,7 @@ impl CgroupJob {
 
         match cgroup_result {
             Ok(cgroup) => {
+                log::debug!("cgruop ver {}", if cgroup.v2() {"2"} else {"1"});
                 full_path.push(cgroup.path());
                 Ok(Self {
                     cgroup: Some(cgroup),
@@ -123,8 +126,8 @@ impl CgroupJob {
         (max_usage_in_bytes / 1024).try_into().ok()
     }
 
-    pub fn spawn_in_cgroup(&self, runner: &RawCommand) -> anyhow::Result<Child> {
-        let mut cmd = runner.build_tokio()?;
+    pub fn spawn_in_cgroup(&self, runner: &ShellCommand) -> anyhow::Result<Child> {
+        let mut cmd = runner.build_tokio();
 
         cmd.kill_on_drop(true)
             .stdin(Stdio::piped())

@@ -16,6 +16,6 @@ public class mle {
             bigData.add(arr);
         }
 
-        System.out.println("Allocation complete. Press Enter to exit...");
+        System.out.println("Allocation complete.");
     }
 }

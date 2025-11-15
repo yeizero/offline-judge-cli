@@ -5,7 +5,7 @@ use crate::{error, escapable, info, warn};
 use inquire::ui::{Color, RenderConfig, StyleSheet};
 use inquire::{Confirm, InquireError, Select, Text};
 use owo_colors::OwoColorize;
-use shared::{get_exe_dir, RawCommand};
+use shared::{get_exe_dir, ShellCommand};
 use std::fmt::Display;
 use std::io::{BufRead, BufReader, Write};
 use std::process::Stdio;
@@ -59,8 +59,9 @@ pub fn prompt_advanced_options(
     // SAFE `unwrap`: `plugins` are retrieved from config, which is loaded via exe_dir.
     let exe_path = get_exe_dir().unwrap();
 
-    let mut child = RawCommand::new(&plugin.command)
-        .build()?
+    let mut child = ShellCommand::parse_str(&plugin.command)?
+        .absolute_program(&exe_path)
+        .build()
         .current_dir(exe_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

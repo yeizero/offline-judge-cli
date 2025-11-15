@@ -1,22 +1,26 @@
-use shared::RawCommand;
+use shared::ShellCommand;
 
 use crate::judge::comparison::{StyledComparison, compare_styled};
 use crate::judge::verdict::{JudgeStatus, JudgeVerdict, Limitation, TleType};
 use crate::monitor::{JudgeMonitor, TimingStatus, load_monitor};
 use crate::utils::{PrettyNumber, center_text};
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+use std::sync::Arc;
+use std::{borrow::Cow, process::ExitStatus};
 
 mod comparison;
 pub mod verdict;
 
 const INFO_SPACE: usize = 30;
 
-pub async fn evaluate<'a>(
-    runner: &'a RawCommand,
-    input: &'a str,
-    ans: &'a str,
+pub async fn evaluate(
+    runner: Arc<ShellCommand>,
+    input: Arc<String>,
+    ans: Arc<String>,
     limit: &Limitation,
-) -> JudgeVerdict<'a> {
-    match evaluate_with_system_error(runner, input, ans, limit).await {
+) -> JudgeVerdict {
+    match evaluate_with_system_error(runner, Arc::clone(&input), &ans, limit).await {
         Ok(verdict) => verdict,
         Err(e) => {
             let mut verdict = JudgeVerdict::new(input);
@@ -26,21 +30,30 @@ pub async fn evaluate<'a>(
     }
 }
 
-async fn evaluate_with_system_error<'a>(
-    runner: &'a RawCommand,
-    input: &'a str,
-    ans: &'a str,
+async fn evaluate_with_system_error(
+    runner: Arc<ShellCommand>,
+    input: Arc<String>,
+    ans: &str,
     limit: &Limitation,
-) -> anyhow::Result<JudgeVerdict<'a>> {
+) -> anyhow::Result<JudgeVerdict> {
     let ans: &str = ans.trim_end();
-    let mut verdict: JudgeVerdict<'a> = JudgeVerdict::new(input);
+    let mut verdict = JudgeVerdict::new(Arc::clone(&input));
 
-    let mut monitor = load_monitor(runner, input, limit).await?;
+    let mut monitor = load_monitor(&runner, &input, limit).await?;
 
     match monitor.execute().await {
         Ok(TimingStatus::InTime(output)) => {
             verdict.duration(Some(output.duration));
             verdict.memory(output.memory);
+
+            if let Some(code) = output.status.code() {
+                log::debug!("Exit code: {}", code);
+            } else {
+                #[cfg(unix)]
+                if let Some(signal) = output.status.signal() {
+                    log::debug!("Signal: {}", signal);
+                }
+            }
 
             let actual_output = String::from_utf8_lossy(&output.stdout);
             match compare_styled(&actual_output, ans) {
@@ -48,10 +61,16 @@ async fn evaluate_with_system_error<'a>(
                     verdict.status(JudgeStatus::AC);
                 }
                 StyledComparison::Diff(diff) => {
-                    if !output.stderr.is_empty() {
-                        verdict.status(JudgeStatus::RE(
-                            String::from_utf8_lossy(&output.stderr).into(),
-                        ))
+                    if let Some(error_msg) = get_error_exit_status_description(output.status) {
+                        let mut error_msg = error_msg.into_owned();
+                        let stderr_msg = String::from_utf8_lossy(&output.stderr);
+                        let stderr_msg = stderr_msg.trim();
+
+                        if !stderr_msg.is_empty() {
+                            error_msg.push('\n');
+                            error_msg.push_str(stderr_msg);
+                        }
+                        verdict.status(JudgeStatus::RE(error_msg));
                     } else {
                         verdict.status(JudgeStatus::WA(diff));
                     }
@@ -82,7 +101,68 @@ async fn evaluate_with_system_error<'a>(
     Ok(verdict)
 }
 
-pub fn print_test_label(round: u32) {
+fn get_error_exit_status_description(status: ExitStatus) -> Option<Cow<'static, str>> {
+    #[cfg(unix)]
+    
+    #[cfg(unix)]
+    if let Some(signal) = status.signal() {
+        use libc;
+        let description = match signal {
+            libc::SIGSEGV => "Segmentation Fault (SIGSEGV)",
+            libc::SIGABRT => "Abort (SIGABRT)",
+            libc::SIGFPE => "Floating Point Exception (SIGFPE)",
+            libc::SIGILL => "Illegal Instruction (SIGILL)",
+            libc::SIGBUS => "Bus Error (SIGBUS)",
+            libc::SIGKILL => "Killed (SIGKILL)",
+            libc::SIGTERM => "Terminated (SIGTERM)",
+            libc::SIGINT => "Interrupted (SIGINT)",
+            libc::SIGQUIT => "Quit (SIGQUIT)",
+            libc::SIGPIPE => "Broken Pipe (SIGPIPE)",
+            _ => return Some(Cow::Owned(format!("Terminated by signal {signal}"))),
+        };
+        return Some(Cow::Borrowed(description))
+    }
+
+    if let Some(code) = status.code() {
+        #[cfg(windows)]
+        {
+            let description = match code as u32 {
+                0xC0000005 => "Access Violation",
+                0xC0000094 => "Divide by Zero",
+                0xC00000FD => "Stack Overflow",
+                0xC000001D => "Illegal Instruction",
+                0 => return None,
+                _ => return Some(Cow::Owned(format!("Application Exit Code: {}", code))),
+            };
+            Some(Cow::Borrowed(description))
+        }
+
+        #[cfg(not(windows))]
+        match code {
+            0 => None,
+            126 => Some(Cow::Borrowed("Command found but not executable")),
+            127 => Some(Cow::Borrowed("Command not found")),
+            _ => Some(Cow::Owned(format!("Application Exit Code: {}", code))),
+        }
+    } else {
+        #[cfg(unix)]
+        {
+            Some(Cow::Borrowed(
+                "Terminated by unknown cause (No code, no signal)",
+            ))
+        }
+        #[cfg(windows)]
+        {
+            unreachable!();
+        }
+        #[cfg(not(any(windows, unix)))]
+        {
+            Some(Cow::Borrowed("Terminated by unknown cause (No code)"))
+        }
+    }
+}
+
+pub fn print_test_label(round: usize) {
     println!(
         "{}\n",
         center_text(&format!("Test {round}"), INFO_SPACE, "_")

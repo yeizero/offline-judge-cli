@@ -1,11 +1,14 @@
 use crate::judge::verdict::Limitation;
-use shared::RawCommand;
+use async_trait::async_trait;
+use shared::ShellCommand;
 use std::{process::ExitStatus, time::Duration};
 use tokio::time::timeout;
+
+#[async_trait]
 pub trait JudgeMonitor<'a>: Sized {
     /// Err as system error
     async fn load(
-        runner: &'a RawCommand,
+        runner: &'a ShellCommand,
         input: &'a str,
         limit: &'a Limitation,
     ) -> anyhow::Result<Self>;
@@ -18,26 +21,16 @@ pub struct MonitorOutput {
     pub memory: Option<usize>,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
-    #[expect(dead_code)]
     pub status: ExitStatus,
 }
 
 pub enum TimingStatus<T> {
+    /// InTime means the program didn't abort, but it might still TLE.
     InTime(T),
     Aborted(Duration),
 }
 
 impl<T> TimingStatus<T> {
-    // pub fn map<R, F>(self, f: F) -> TimingStatus<R>
-    // where
-    //     F: FnOnce(T) -> R,
-    // {
-    //     match self {
-    //         Self::InTime(value) => TimingStatus::InTime(f(value)),
-    //         Self::Aborted(d) => TimingStatus::Aborted(d),
-    //     }
-    // }
-
     pub fn map_result<R, E, F>(self, f: F) -> Result<TimingStatus<R>, E>
     where
         F: FnOnce(T) -> Result<R, E>,

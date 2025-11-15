@@ -1,4 +1,5 @@
 use std::io;
+use std::path::Path;
 use std::process::Command;
 use std::{env, path::PathBuf};
 
@@ -23,115 +24,136 @@ pub fn get_config_path() -> io::Result<PathBuf> {
     Ok(get_exe_dir()?.join("config.yaml"))
 }
 
-#[cfg(windows)]
-fn build_native_shell_command(command_string: &str) -> io::Result<Command> {
-    use std::os::windows::process::CommandExt;
+#[derive(Debug, Clone)]
+pub struct ShellCommand {
+    program: String,
+    args: Vec<String>,
+}
 
-    fn split_command_name(command_str: &str) -> Option<(&str, &str)> {
-        let trimmed = command_str.trim_start();
-        let original_len = command_str.len();
+impl ShellCommand {
+    /// 從完整的命令列字串解析並創建一個 `ParsedCommand`。
+    ///
+    /// 這個方法會在創建時就進行平台特定的解析。
+    /// 如果命令字串為空或無效，將會回傳錯誤。
+    ///
+    /// # Errors
+    ///
+    /// 如果輸入字串無法解析為有效的命令，將回傳 `io::Error`。
+    pub fn parse_str(command_string: &str) -> io::Result<Self> {
+        let mut parts = Self::split_string(command_string)?;
 
-        if trimmed.is_empty() {
-            return None;
+        if parts.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Received an empty command string.",
+            ));
         }
 
-        let program_name_end_index: usize;
-        let arguments_start_index: usize;
+        let program = parts.remove(0);
+        let args = parts;
 
-        if let Some(inner_str) = trimmed.strip_prefix('"') {
-            if let Some(idx) = inner_str.find('"') {
-                program_name_end_index = 1 + idx + 1;
+        Ok(Self { program, args })
+    }
 
-                let after_quote_index = program_name_end_index;
+    pub fn build(&self) -> Command {
+        let mut cmd = Command::new(&self.program);
+        cmd.args(&self.args);
+        cmd
+    }
 
-                if let Some(start_arg_idx) =
-                    trimmed[after_quote_index..].find(|c: char| !c.is_whitespace())
-                {
-                    arguments_start_index = after_quote_index + start_arg_idx;
-                } else {
-                    arguments_start_index = trimmed.len();
-                }
-            } else {
-                program_name_end_index = trimmed.len();
-                arguments_start_index = trimmed.len();
+    pub fn build_tokio(&self) -> tokio::process::Command {
+        self.build().into()
+    }
+
+    pub fn program(&self) -> &str {
+        &self.program
+    }
+
+    pub fn args(&self) -> &[String] {
+        &self.args
+    }
+
+    pub fn absolute_program(&mut self, base_dir: impl AsRef<Path>) -> &mut Self {
+        let program_path = Path::new(&self.program);
+
+        if program_path.is_relative() && (self.program.contains('/') || self.program.contains('\\'))
+        {
+            let new_program_path = base_dir.as_ref().join(program_path);
+
+            if let Ok(canon_path) = dunce::canonicalize(new_program_path)
+                && let Some(s) = canon_path.to_str()
+            {
+                self.program = s.to_string();
             }
-        } else if let Some(idx) = trimmed.find(|c: char| c.is_whitespace()) {
-            program_name_end_index = idx;
+        }
+        self
+    }
 
-            if let Some(start_arg_idx) = trimmed[idx..].find(|c: char| !c.is_whitespace()) {
-                arguments_start_index = idx + start_arg_idx;
-            } else {
-                arguments_start_index = trimmed.len();
-            }
-        } else {
-            program_name_end_index = trimmed.len();
-            arguments_start_index = trimmed.len();
+    // -- Private --
+
+    #[cfg(unix)]
+    fn split_string(command_string: &str) -> io::Result<Vec<String>> {
+        shlex::split(command_string).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Failed to parse command string with shlex",
+            )
+        })
+    }
+
+    #[cfg(windows)]
+    fn split_string(command_string: &str) -> io::Result<Vec<String>> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::{HLOCAL, LocalFree};
+        use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
+
+        if command_string.trim().is_empty() {
+            return Ok(Vec::new());
         }
 
-        let offset = original_len - trimmed.len();
+        let wide_chars: Vec<u16> = OsStr::new(command_string)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let mut argc = 0;
 
-        let program_name = &command_str[offset..offset + program_name_end_index];
-        let arguments = &command_str[offset + arguments_start_index..];
+        let argv = unsafe { CommandLineToArgvW(wide_chars.as_ptr(), &mut argc) };
+        if argv.is_null() {
+            return Err(io::Error::last_os_error());
+        }
 
-        Some((program_name, arguments))
+        let mut args = Vec::with_capacity(argc as usize);
+        for i in 0..argc {
+            let arg_ptr = unsafe { *argv.add(i as usize) };
+            let mut len = 0;
+            let mut temp_ptr = arg_ptr;
+            while unsafe { *temp_ptr } != 0 {
+                len += 1;
+                temp_ptr = unsafe { temp_ptr.add(1) };
+            }
+            let wide_slice = unsafe { std::slice::from_raw_parts(arg_ptr, len) };
+            if let Ok(s) = String::from_utf16(wide_slice) {
+                args.push(s);
+            } else {
+                unsafe { LocalFree(argv as HLOCAL) };
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Invalid UTF-16 in command line argument",
+                ));
+            }
+        }
+
+        unsafe { LocalFree(argv as HLOCAL) };
+
+        Ok(args)
     }
 
-    let (program, raw_args) = split_command_name(command_string).unwrap_or_default();
-
-    let mut cmd = Command::new(program);
-    if !raw_args.is_empty() {
-        cmd.raw_arg(raw_args);
-    }
-    Ok(cmd)
-}
-
-#[cfg(unix)]
-fn build_native_shell_command(command_string: &str) -> io::Result<Command> {
-    use ::shlex;
-
-    let args = shlex::split(command_string).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Failed to parse command string",
-        )
-    })?;
-    if args.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Received an empty command string.",
-        ));
-    }
-    let mut cmd = Command::new(&args[0]);
-    if args.len() > 1 {
-        cmd.args(&args[1..]);
-    }
-    Ok(cmd)
-}
-
-#[cfg(not(any(unix, windows)))]
-pub fn build_native_shell_command(_command_string: &str) -> io::Result<Command> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "This platform is not supported for native shell commands.",
-    ))
-}
-
-#[derive(Debug)]
-pub struct RawCommand {
-    raw: String,
-}
-
-impl RawCommand {
-    pub fn new(s: impl Into<String>) -> Self {
-        Self { raw: s.into() }
-    }
-    pub fn build(&self) -> io::Result<std::process::Command> {
-        build_native_shell_command(&self.raw)
-    }
-    pub fn build_tokio(&self) -> io::Result<tokio::process::Command> {
-        self.build().map(Into::into)
-    }
-    pub fn raw_str(&self) -> &str {
-        &self.raw
+    #[cfg(not(any(unix, windows)))]
+    fn split_string(_command_string: &str) -> io::Result<Vec<String>> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "This platform is not supported.",
+        ))
     }
 }
