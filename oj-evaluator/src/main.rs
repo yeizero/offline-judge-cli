@@ -22,7 +22,7 @@ mod utils;
 use std::{
     collections::HashMap,
     io::{Write, stdout},
-    process,
+    process::ExitCode,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -51,22 +51,31 @@ use crate::{
 };
 
 #[tokio::main]
-async fn main() {
-    let mut info = resolve_args().unwrap_or_else(|e| {
-        println!("❌ [SE] {e}");
-        process::exit(1);
-    });
+async fn main() -> ExitCode {
+    let mut info = match resolve_args() {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("❌ [SE] {e}");
+            return ExitCode::FAILURE;
+        }
+    };
 
-    let config = read_config().unwrap_or_else(|e| {
-        println!("❌ [SE] {e}");
-        process::exit(1);
-    });
+    let config = match read_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("❌ [SE] {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     info.merge_config(&config);
 
-    ensure_dir_exists(TEMP_DIR.as_path()).unwrap();
+    if let Err(e) = ensure_dir_exists(TEMP_DIR.as_path()) {
+        eprintln!("❌ [SE] {e}");
+        return ExitCode::FAILURE;
+    }
 
     let Some(runner) = compile_source_code(&info, &config).await else {
-        process::exit(1);
+        return ExitCode::FAILURE;
     };
 
     log::debug!("runner: {runner:?}");
@@ -76,6 +85,8 @@ async fn main() {
     } else {
         execute(runner);
     }
+
+    ExitCode::SUCCESS
 }
 
 async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Option<ShellCommand> {
@@ -219,12 +230,15 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
         && warmup > 0
         && let Some(case) = cases_list.first()
     {
+        let mut short_limit = limit;
+        short_limit.max_time(Some(Duration::from_millis(300)));
+
         for _ in 0..warmup {
             evaluate(
                 Arc::clone(&runner_arc),
                 Arc::clone(&case.input),
                 Arc::clone(&case.answer),
-                &limit,
+                &short_limit,
             )
             .await;
         }
