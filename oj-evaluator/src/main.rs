@@ -23,10 +23,7 @@ use std::{
     collections::HashMap,
     io::{Write, stdout},
     process::ExitCode,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -127,38 +124,25 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
         };
     }
 
-    let is_timer_stop = Arc::new(AtomicBool::new(false));
-    let timer_task = {
-        let is_timer_stop_read = Arc::clone(&is_timer_stop);
-        tokio::spawn(async move {
-            let timer = Instant::now();
-            while !is_timer_stop_read.load(Ordering::Relaxed) {
-                print!("\r🔨 正在編譯檔案 / {:.2}s", timer.elapsed().as_secs_f64());
-                let _ = stdout()
-                    .flush()
-                    .inspect_err(|e| log::debug!("Flush Error: {e}"));
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        })
+    let timer_task = async {
+        let timer = Instant::now();
+        loop {
+            print!("\r🔨 正在編譯檔案 / {:.2}s", timer.elapsed().as_secs_f64());
+            let _ = stdout().flush();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     };
 
-    let result = {
-        let is_timer_stop_write = Arc::clone(&is_timer_stop);
-        prepare_command(&info.file, profile, false, move || {
-            println!();
-            is_timer_stop_write.store(true, Ordering::Relaxed);
-        })
-        .await
-    };
-
-    if is_timer_stop
-        .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-        .is_ok()
-    {
+    let compile_task = prepare_command(&info.file, profile, false, || {
         println!();
-    }
+    });
 
-    let _ = timer_task.await;
+    let result = tokio::select! {
+        result = compile_task => result,
+        _ = timer_task => {
+            unreachable!();
+        }
+    };
 
     let _ = cache_state
         .save()
