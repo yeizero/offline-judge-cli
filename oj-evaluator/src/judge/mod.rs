@@ -3,24 +3,22 @@ use shared::ShellCommand;
 use crate::judge::comparison::{StyledComparison, compare_styled};
 use crate::judge::verdict::{JudgeStatus, JudgeVerdict, Limitation, TleType};
 use crate::monitor::{JudgeMonitor, TimingStatus, load_monitor};
-use crate::utils::{PrettyNumber, center_text};
+
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
-use std::sync::Arc;
 use std::{borrow::Cow, process::ExitStatus};
 
 mod comparison;
+pub mod display;
 pub mod verdict;
 
-const INFO_SPACE: usize = 30;
-
-pub async fn evaluate(
-    runner: Arc<ShellCommand>,
-    input: Arc<String>,
-    ans: Arc<String>,
-    limit: &Limitation,
-) -> JudgeVerdict {
-    match evaluate_with_system_error(runner, Arc::clone(&input), &ans, limit).await {
+pub async fn evaluate<'a, 'b>(
+    runner: &'b ShellCommand,
+    input: &'a str,
+    ans: &'b str,
+    limit: &'b Limitation,
+) -> JudgeVerdict<'a> {
+    match evaluate_with_system_error(runner, input, ans, limit).await {
         Ok(verdict) => verdict,
         Err(e) => {
             let mut verdict = JudgeVerdict::new(input);
@@ -30,16 +28,16 @@ pub async fn evaluate(
     }
 }
 
-async fn evaluate_with_system_error(
-    runner: Arc<ShellCommand>,
-    input: Arc<String>,
-    ans: &str,
-    limit: &Limitation,
-) -> anyhow::Result<JudgeVerdict> {
+async fn evaluate_with_system_error<'a, 'b>(
+    runner: &'b ShellCommand,
+    input: &'a str,
+    ans: &'b str,
+    limit: &'b Limitation,
+) -> anyhow::Result<JudgeVerdict<'a>> {
     let ans: &str = ans.trim_end();
-    let mut verdict = JudgeVerdict::new(Arc::clone(&input));
+    let mut verdict = JudgeVerdict::new(input);
 
-    let mut monitor = load_monitor(&runner, &input, limit).await?;
+    let mut monitor = load_monitor(runner, input, limit).await?;
 
     match monitor.execute().await {
         Ok(TimingStatus::InTime(output)) => {
@@ -103,7 +101,6 @@ async fn evaluate_with_system_error(
 
 fn get_error_exit_status_description(status: ExitStatus) -> Option<Cow<'static, str>> {
     #[cfg(unix)]
-    
     #[cfg(unix)]
     if let Some(signal) = status.signal() {
         use libc;
@@ -120,7 +117,7 @@ fn get_error_exit_status_description(status: ExitStatus) -> Option<Cow<'static, 
             libc::SIGPIPE => "Broken Pipe (SIGPIPE)",
             _ => return Some(Cow::Owned(format!("Terminated by signal {signal}"))),
         };
-        return Some(Cow::Borrowed(description))
+        return Some(Cow::Borrowed(description));
     }
 
     if let Some(code) = status.code() {
@@ -159,57 +156,5 @@ fn get_error_exit_status_description(status: ExitStatus) -> Option<Cow<'static, 
         {
             Some(Cow::Borrowed("Terminated by unknown cause (No code)"))
         }
-    }
-}
-
-pub fn print_test_label(round: usize) {
-    println!(
-        "{}\n",
-        center_text(&format!("Test {round}"), INFO_SPACE, "_")
-    );
-}
-
-pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
-    match &verdict.status {
-        JudgeStatus::AC => println!("✅ [AC] 答案正確！"),
-        JudgeStatus::RE(msg) => println!("❌ [RE] {msg}"),
-        JudgeStatus::SE(err) => println!("❌ [SE] 內部錯誤：{err}"),
-        JudgeStatus::Tle(_) => println!("❌ [TLE] 程式執行時間超過限制！"),
-        JudgeStatus::Mle(_) => println!("❌ [MLE] 程式記憶體使用量超過限制！"),
-        JudgeStatus::WA(diff) => {
-            println!("❌ [WA] 答案比對失敗！");
-            println!(
-                "\n{}\n{}\n\n{}\n{}\n{}\n{}\n",
-                center_text("Input", INFO_SPACE, "-"),
-                verdict.input,
-                center_text("Program Output", INFO_SPACE, "-"),
-                diff.output,
-                center_text("Expect Output", INFO_SPACE, "-"),
-                diff.answer
-            );
-        }
-    };
-
-    if let Some(memory) = verdict.memory {
-        println!();
-        println!(
-            "📊 記憶體使用量: {} KiB / {} KiB",
-            memory,
-            limit
-                .max_memory
-                .map_or_else(|| "無限制".to_string(), |i| i.prettify())
-        );
-    }
-    if let Some(duration) = verdict.duration {
-        if verdict.memory.is_none() {
-            println!();
-        }
-        println!(
-            "⏱️ 程式執行耗時: {} ms / {} ms",
-            duration.as_millis(),
-            limit
-                .max_time
-                .map_or_else(|| "無限制".to_string(), |i| i.as_millis().prettify())
-        );
     }
 }

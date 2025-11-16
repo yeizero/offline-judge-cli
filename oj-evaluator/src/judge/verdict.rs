@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::fmt;
-use std::sync::Arc;
 use std::time::Duration;
 
 use owo_colors::OwoColorize;
@@ -35,15 +34,15 @@ impl Default for Limitation {
 }
 
 #[derive(Debug)]
-pub struct JudgeVerdict {
+pub struct JudgeVerdict<'a> {
     pub status: JudgeStatus,
-    pub input: Arc<String>,
+    pub input: &'a str,
     pub duration: Option<Duration>,
     pub memory: Option<usize>,
 }
 
-impl JudgeVerdict {
-    pub fn new(input: Arc<String>) -> Self {
+impl<'a> JudgeVerdict<'a> {
+    pub fn new(input: &'a str) -> Self {
         Self {
             status: JudgeStatus::SE(anyhow::anyhow!("status is not handed")),
             input,
@@ -213,12 +212,7 @@ impl fmt::Display for SummaryInfo {
                     self.score()
                 )
             }
-            status @ JudgeStatus::Tle(time) => write!(
-                f,
-                "{} ({})",
-                status.to_str_short(),
-                time
-            ),
+            status @ JudgeStatus::Tle(time) => write!(f, "{} ({})", status.to_str_short(), time),
             status @ JudgeStatus::Mle(memory) => {
                 write!(f, "{} ({} KiB)", status.to_str_short(), memory.prettify())
             }

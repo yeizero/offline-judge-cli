@@ -23,27 +23,25 @@ use std::{
     collections::HashMap,
     io::{Write, stdout},
     process::ExitCode,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
 use compile::prepare_command;
+use futures::{self, stream::StreamExt};
 use judge::{
-    evaluate, print_test_info, print_test_label,
-    verdict::{CompileError, Limitation, SummaryInfo},
-};
-use prettytable::{
-    Cell, Row, Table,
-    format::{FormatBuilder, LinePosition, LineSeparator},
+    evaluate,
+    verdict::{CompileError, Limitation},
 };
 use reader::{TestInfo, resolve_args};
 use shared::ShellCommand;
-use tokio::{sync::Semaphore, task::JoinSet, time::interval};
-use utils::PrettyNumber;
+use tokio::time::interval;
 
 use crate::{
     config::TEMP_DIR,
-    judge::verdict::JudgeVerdict,
+    judge::{
+        display::{JudgeReport, print_test_info, print_test_label},
+        verdict::JudgeVerdict,
+    },
     reader::{EvaluatorConfig, FileCacheState, ensure_dir_exists, read_config},
 };
 
@@ -160,136 +158,69 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
     }
 }
 
-struct ArcCases {
-    input: Arc<String>,
-    answer: Arc<String>,
-}
-
 async fn judge(info: TestInfo, runner: ShellCommand) {
     let mut limit = Limitation::default();
 
     if let Some(time) = info.max_time {
         limit.max_time(Some(time));
     }
-
     if let Some(memory) = info.max_memory {
         limit.max_memory(Some(memory));
     }
 
     let test_rounds: usize = info.cases.len();
-    let mut summary_info = SummaryInfo::default();
-
-    let mut report_table = Table::new();
-    report_table.set_format(
-        FormatBuilder::new()
-            .padding(1, 1)
-            .separator(LinePosition::Title, LineSeparator::new('=', '+', '|', '|'))
-            .separator(
-                LinePosition::Bottom,
-                LineSeparator::new('-', '+', '\'', '\''),
-            )
-            .separator(LinePosition::Top, LineSeparator::new('-', '+', '.', '.'))
-            .borders('|')
-            .build(),
-    );
-    report_table.set_titles(Row::new(vec![
-        Cell::new(""),
-        Cell::new("測資"),
-        Cell::new("用時 (ms)"),
-        Cell::new("記憶體 (KiB)"),
-        Cell::new("結果"),
-    ]));
-
-    let runner_arc = Arc::new(runner);
-    let cases_list: Vec<ArcCases> = info
-        .cases
-        .into_iter()
-        .map(|case| ArcCases {
-            input: Arc::new(case.input),
-            answer: Arc::new(case.answer),
-        })
-        .collect();
+    let mut report = JudgeReport::new();
 
     if let Some(warmup) = info.warmup_times
         && warmup > 0
-        && let Some(case) = cases_list.first()
+        && let Some(case) = info.cases.first()
     {
         let mut short_limit = limit;
         short_limit.max_time(Some(Duration::from_millis(300)));
-
         for _ in 0..warmup {
-            evaluate(
-                Arc::clone(&runner_arc),
-                Arc::clone(&case.input),
-                Arc::clone(&case.answer),
-                &short_limit,
-            )
-            .await;
+            evaluate(&runner, &case.input, &case.answer, &short_limit).await;
         }
     }
 
     let concurrency_limit = num_cpus::get();
-    let semaphore = Arc::new(Semaphore::new(concurrency_limit));
-    let mut join_set: JoinSet<(usize, JudgeVerdict)> = JoinSet::new();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, JudgeVerdict)>(concurrency_limit);
 
-    for (idx, case) in cases_list.iter().enumerate() {
-        let runner = Arc::clone(&runner_arc);
-        let input = Arc::clone(&case.input);
-        let answer = Arc::clone(&case.answer);
-        let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
-
-        join_set.spawn(async move {
-            let _permit = permit;
-            (idx + 1, evaluate(runner, input, answer, &limit).await)
+    let evaluation_tasks = futures::stream::iter(info.cases.iter().enumerate())
+        .for_each_concurrent(concurrency_limit, |(idx, case)| {
+            let tx = tx.clone();
+            let runner = &runner;
+            async move {
+                let verdict = evaluate(runner, &case.input, &case.answer, &limit).await;
+                let _ = tx.send((idx + 1, verdict)).await;
+            }
         });
-    }
 
     let mut solving_round = 1;
-    let mut waiting_verdict: HashMap<usize, JudgeVerdict> = HashMap::new();
-
+    let mut waiting_verdict: HashMap<usize, JudgeVerdict<'_>> = HashMap::new();
     let mut ticker: tokio::time::Interval = interval(Duration::from_millis(100));
     let mut round_start_time = Instant::now();
 
     print_test_label(1);
-    loop {
+
+    tokio::pin!(evaluation_tasks);
+
+    while solving_round <= test_rounds {
         tokio::select! {
-            Some(result) = join_set.join_next() => {
-                let (round, verd) = match result {
-                    Ok(i) => i,
-                    Err(e) => {
-                        log::error!("A judge task failed: {e}");
-                        return;
-                    }
-                };
+            _ = &mut evaluation_tasks => {},
+
+            Some((round, verd)) = rx.recv() => {
                 waiting_verdict.insert(round, verd);
                 while let Some(verdict) = waiting_verdict.remove(&solving_round) {
                     round_start_time = Instant::now();
 
                     print_test_info(&verdict, &limit);
-
-                    report_table.add_row(Row::new(vec![
-                        Cell::new(if verdict.is_accept() { "✅" } else { "❌" }),
-                        Cell::new(&solving_round.to_string()),
-                        Cell::new(&verdict.duration.map_or_else(
-                            || "Unknown".to_string(),
-                            |value| value.as_millis().prettify(),
-                        )),
-                        Cell::new(
-                            &verdict
-                                .memory
-                                .map_or_else(|| "Unknown".to_string(), |value| value.prettify()),
-                        ),
-                        Cell::new(verdict.status.to_str_short()),
-                    ]));
-
-                    summary_info.update(verdict);
+                    report.update(verdict, round);
 
                     solving_round += 1;
-                    if solving_round <= test_rounds {
-                        print_test_label(solving_round);
-                    } else {
+                    if solving_round > test_rounds {
                         break;
                     }
+                    print_test_label(solving_round);
                 }
             }
 
@@ -300,24 +231,12 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
                         print!("執行中... {:.2}s\r", elapsed.as_secs_f64());
                         std::io::stdout().flush().unwrap();
                     }
-                } else {
-                    break;
                 }
             }
         }
     }
-    println!(
-        "\n📝 總結: {:>33}",
-        format!(
-            "正確 {} 錯誤 {} 正確比 {}%",
-            summary_info.success_rounds,
-            test_rounds - summary_info.success_rounds,
-            summary_info.score()
-        )
-    );
-    report_table.printstd();
 
-    println!("🎯 {summary_info}");
+    report.printstd();
 }
 
 fn execute(runner: ShellCommand) {
