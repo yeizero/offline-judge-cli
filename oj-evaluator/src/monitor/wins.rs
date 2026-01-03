@@ -1,4 +1,5 @@
 use std::mem;
+use std::ops::Deref;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -10,9 +11,9 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 };
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
-    QueryInformationJobObject, SetInformationJobObject,
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_BASIC_LIMIT_INFORMATION,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicAccountingInformation,
+    JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
 };
 use windows::Win32::System::Threading::{
     CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, OpenProcess, OpenThread,
@@ -62,13 +63,12 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
         assert_ne!(pid, 0);
 
         let job_object = JobObject::create()?;
-        job_object.set_extended_limit_info(&{
-            let mut extended_limit_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-
-            extended_limit_info.BasicLimitInformation.LimitFlags =
-                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-
-            extended_limit_info
+        job_object.set_extended_limit_info(&JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+            BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
+                LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                ..Default::default()
+            },
+            ..Default::default()
         })?;
         job_object.assign_process(pid_to_process_handle(pid)?)?;
 
@@ -82,11 +82,14 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
         }
 
         let output_status = timeout_with_limit(self.limit, child.wait_with_output()).await;
-        let duration = job_object.get_cpu_time().unwrap_or_else(|| {
-            log::debug!("Fallback to wall clock");
+        let duration = job_object.get_cpu_time().unwrap_or_else(|e| {
+            log::debug!("Fallback to wall clock: {e}");
             start_time.elapsed()
         });
-        let memory = job_object.get_max_memory_usage();
+        let memory = job_object
+            .get_max_memory_usage_kb()
+            .inspect_err(|e| log::debug!("Failed to fetch memory: {e}"))
+            .ok();
 
         output_status.map_result(move |result| {
             let output = result?;
@@ -103,15 +106,9 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
 
 pub fn resume_suspended_child_by_pid(pid: u32) -> WinResult<()> {
     let tid = find_main_thread_id(pid)?;
-    let thread_handle = unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, tid) }?;
+    let thread_handle = OwnedHandle(unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, tid) }?);
 
-    if thread_handle.is_invalid() {
-        return Err(WinError::from_win32());
-    }
-
-    let suspend_count = unsafe { ResumeThread(thread_handle) };
-    let _ = unsafe { CloseHandle(thread_handle) };
-
+    let suspend_count = unsafe { ResumeThread(*thread_handle) };
     if suspend_count == u32::MAX {
         return Err(WinError::from_win32());
     }
@@ -120,7 +117,7 @@ pub fn resume_suspended_child_by_pid(pid: u32) -> WinResult<()> {
 }
 
 fn find_main_thread_id(pid: u32) -> WinResult<u32> {
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)? };
+    let snapshot = OwnedHandle(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)? });
     if snapshot.is_invalid() {
         return Err(WinError::from_win32());
     }
@@ -129,7 +126,7 @@ fn find_main_thread_id(pid: u32) -> WinResult<u32> {
         dwSize: mem::size_of::<THREADENTRY32>() as u32,
         ..Default::default()
     };
-    let mut result = unsafe { Thread32First(snapshot, &mut te32) };
+    let mut result = unsafe { Thread32First(*snapshot, &mut te32) };
     let mut thread_id = None;
 
     while result.is_ok() {
@@ -137,15 +134,14 @@ fn find_main_thread_id(pid: u32) -> WinResult<u32> {
             thread_id = Some(te32.th32ThreadID);
             break;
         }
-        result = unsafe { Thread32Next(snapshot, &mut te32) };
+        result = unsafe { Thread32Next(*snapshot, &mut te32) };
     }
 
-    let _ = unsafe { CloseHandle(snapshot) };
     thread_id.ok_or_else(|| WinError::new(E_FAIL, "Main thread not found for PID."))
 }
 
 struct JobObject {
-    handle: HANDLE,
+    handle: OwnedHandle,
 }
 
 unsafe impl Send for JobObject {}
@@ -153,7 +149,9 @@ unsafe impl Sync for JobObject {}
 
 impl JobObject {
     pub fn create() -> WinResult<Self> {
-        unsafe { CreateJobObjectW(None, PCWSTR::null()) }.map(|handle| Self { handle })
+        unsafe { CreateJobObjectW(None, PCWSTR::null()) }.map(|handle| Self {
+            handle: OwnedHandle(handle),
+        })
     }
 
     pub fn set_extended_limit_info(
@@ -162,7 +160,7 @@ impl JobObject {
     ) -> WinResult<()> {
         unsafe {
             SetInformationJobObject(
-                self.handle,
+                *self.handle,
                 JobObjectExtendedLimitInformation,
                 info as *const _ as *const std::ffi::c_void,
                 mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
@@ -170,60 +168,71 @@ impl JobObject {
         }
     }
 
-    pub fn assign_process(&self, proc_handle: HANDLE) -> WinResult<()> {
-        unsafe { AssignProcessToJobObject(self.handle, proc_handle) }
+    pub fn assign_process(&self, proc_handle: OwnedHandle) -> WinResult<()> {
+        unsafe { AssignProcessToJobObject(*self.handle, *proc_handle) }
     }
 
-    pub fn get_cpu_time(&self) -> Option<Duration> {
+    pub fn get_cpu_time(&self) -> WinResult<Duration> {
         let mut accounting_info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         unsafe {
             QueryInformationJobObject(
-                Some(self.handle),
+                Some(*self.handle),
                 JobObjectBasicAccountingInformation,
                 &mut accounting_info as *mut _ as *mut std::ffi::c_void,
                 std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
                 None,
-            )
-            .is_ok()
-            .then_some({
-                let total_100ns = accounting_info.TotalUserTime + accounting_info.TotalKernelTime;
-                Duration::from_nanos(total_100ns as u64 * 100)
-            })
-        }
+            )?
+        };
+        let total_100ns = accounting_info.TotalUserTime + accounting_info.TotalKernelTime;
+        Ok(Duration::from_nanos(total_100ns as u64 * 100))
     }
 
-    pub fn get_max_memory_usage(&self) -> Option<usize> {
+    pub fn get_max_memory_usage_kb(&self) -> WinResult<usize> {
         let mut accounting_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         unsafe {
             QueryInformationJobObject(
-                Some(self.handle),
+                Some(*self.handle),
                 JobObjectExtendedLimitInformation,
                 &mut accounting_info as *mut _ as *mut std::ffi::c_void,
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
                 None,
-            )
-            .is_ok()
-            .then_some(accounting_info.PeakJobMemoryUsed / 1024)
-        }
+            )?
+        };
+        Ok(accounting_info.PeakJobMemoryUsed / 1024)
     }
 }
 
-impl Drop for JobObject {
-    fn drop(&mut self) {
-        if !self.handle.is_invalid() {
-            unsafe {
-                let _ = CloseHandle(self.handle);
-            }
-        }
-    }
-}
-
-fn pid_to_process_handle(pid: u32) -> WinResult<HANDLE> {
-    unsafe {
+fn pid_to_process_handle(pid: u32) -> WinResult<OwnedHandle> {
+    let handle = unsafe {
         OpenProcess(
             PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
             false,
             pid,
-        )
+        )?
+    };
+    if handle.is_invalid() {
+        return Err(WinError::from_win32());
+    }
+    Ok(OwnedHandle(handle))
+}
+
+#[repr(transparent)]
+struct OwnedHandle(HANDLE);
+
+impl Deref for OwnedHandle {
+    type Target = HANDLE;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Drop for OwnedHandle {
+    fn drop(&mut self) {
+        if !self.0.is_invalid() {
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
     }
 }

@@ -183,34 +183,29 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
     }
 
     let concurrency_limit = num_cpus::get();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, JudgeVerdict)>(concurrency_limit);
-
-    let evaluation_tasks = futures::stream::iter(info.cases.iter().enumerate())
-        .for_each_concurrent(concurrency_limit, |(idx, case)| {
-            let tx = tx.clone();
+    let mut evaluation_stream = futures::stream::iter(info.cases.iter().enumerate())
+        .map(|(idx, case)| {
             let runner = &runner;
+            let limit = &limit;
             async move {
-                let verdict = evaluate(runner, &case.input, &case.answer, &limit).await;
-                let _ = tx.send((idx + 1, verdict)).await;
+                let verdict = evaluate(runner, &case.input, &case.answer, limit).await;
+                (idx + 1, verdict)
             }
-        });
+        })
+        .buffer_unordered(concurrency_limit);
 
     let mut solving_round = 1;
-    let mut waiting_verdict: HashMap<usize, JudgeVerdict<'_>> = HashMap::new();
+    let mut waiting_verdicts: HashMap<usize, JudgeVerdict<'_>> = HashMap::new();
     let mut ticker: tokio::time::Interval = interval(Duration::from_millis(100));
     let mut round_start_time = Instant::now();
 
     print_test_label(1);
 
-    tokio::pin!(evaluation_tasks);
-
     while solving_round <= test_rounds {
         tokio::select! {
-            _ = &mut evaluation_tasks => {},
-
-            Some((round, verd)) = rx.recv() => {
-                waiting_verdict.insert(round, verd);
-                while let Some(verdict) = waiting_verdict.remove(&solving_round) {
+            Some((round, verd)) = evaluation_stream.next() => {
+                waiting_verdicts.insert(round, verd);
+                while let Some(verdict) = waiting_verdicts.remove(&solving_round) {
                     round_start_time = Instant::now();
 
                     print_test_info(&verdict, &limit);

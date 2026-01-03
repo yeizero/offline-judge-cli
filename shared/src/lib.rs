@@ -104,6 +104,7 @@ impl ShellCommand {
     #[cfg(windows)]
     fn split_string(command_string: &str) -> io::Result<Vec<String>> {
         use std::ffi::OsStr;
+        use std::io;
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Foundation::{HLOCAL, LocalFree};
         use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
@@ -116,37 +117,36 @@ impl ShellCommand {
             .encode_wide()
             .chain(Some(0))
             .collect();
-        let mut argc = 0;
 
-        let argv = unsafe { CommandLineToArgvW(wide_chars.as_ptr(), &mut argc) };
-        if argv.is_null() {
+        let mut argc = 0;
+        let argv_ptr = unsafe { CommandLineToArgvW(wide_chars.as_ptr(), &mut argc) };
+        if argv_ptr.is_null() {
             return Err(io::Error::last_os_error());
         }
 
-        let mut args = Vec::with_capacity(argc as usize);
-        for i in 0..argc {
-            let arg_ptr = unsafe { *argv.add(i as usize) };
-            let mut len = 0;
-            let mut temp_ptr = arg_ptr;
-            while unsafe { *temp_ptr } != 0 {
-                len += 1;
-                temp_ptr = unsafe { temp_ptr.add(1) };
-            }
-            let wide_slice = unsafe { std::slice::from_raw_parts(arg_ptr, len) };
-            if let Ok(s) = String::from_utf16(wide_slice) {
-                args.push(s);
-            } else {
-                unsafe { LocalFree(argv as HLOCAL) };
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Invalid UTF-16 in command line argument",
-                ));
+        struct ArgvGuard(HLOCAL);
+        impl Drop for ArgvGuard {
+            fn drop(&mut self) {
+                unsafe { LocalFree(self.0) };
             }
         }
+        let _guard = ArgvGuard(argv_ptr as HLOCAL);
 
-        unsafe { LocalFree(argv as HLOCAL) };
+        let argv_slice = unsafe { std::slice::from_raw_parts(argv_ptr, argc as usize) };
 
-        Ok(args)
+        argv_slice
+            .iter()
+            .map(|&arg_ptr| unsafe {
+                let len = (0..).take_while(|&i| *arg_ptr.add(i) != 0).count();
+                String::from_utf16(std::slice::from_raw_parts(arg_ptr, len))
+            })
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|os_string| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid UTF-16 in command line argument: {}", os_string),
+                )
+            })
     }
 
     #[cfg(not(any(unix, windows)))]

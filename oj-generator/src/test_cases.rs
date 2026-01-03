@@ -66,17 +66,14 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
                     .iter()
                     .enumerate()
                     .map(|(index, case)| {
+                        let count = case.input.len() + case.answer.len();
                         LabelWithOptionIndex::new(
                             Some(index),
-                            format!(
-                                "{} ({}字)",
-                                if case.id == 0 {
-                                    format_args!("外來測資")
-                                } else {
-                                    format_args!("測資 {}", case.id)
-                                },
-                                case.input.len() + case.answer.len()
-                            ),
+                            if case.id == 0 {
+                                format!("外來測資 ({}字)", count)
+                            } else {
+                                format!("測資 {} ({}字)", case.id, count)
+                            }
                         )
                     })
                     .collect();
@@ -241,7 +238,8 @@ fn input_text_or_editor(config: &GeneratorConfig, message: &str) -> Result<Strin
             }
         };
 
-        #[allow(clippy::manual_map)] // ownership problem (cannot return reference to temporary value)
+        #[allow(clippy::manual_map)]
+        // ownership problem (cannot return reference to temporary value)
         let args = if let Some(path) = &config_path {
             Some(&[OsStr::new("--input-fast"), path.as_os_str()])
         } else {
