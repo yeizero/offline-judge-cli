@@ -49,11 +49,14 @@ fn load_cases_from_directory(dir: &Path) -> Result<Vec<TestCase>, ReaderError> {
             log::debug!("Skip non-file entry: {}", path.display());
             continue;
         }
-        if path.extension().is_none_or(|e| e != "in") {
-            log::debug!("Unknown file ignored: {}", path.display());
+        if let Some(ext) = path.extension()
+            && ext != "in"
+        {
+            if ext != "out" {
+                log::debug!("Unknown file ignored: {}", path.display());
+            }
             continue;
         }
-
         let Some(stem) = path.file_stem() else {
             log::debug!("Invalid filename (no stem): {}", path.display());
             continue;
