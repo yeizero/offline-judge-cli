@@ -12,10 +12,79 @@ pub fn read_test_cases(path: TestCasePath) -> Result<TestCases, ReaderError> {
     let raw_str = fs::read_to_string(&path)
         .map_err(|_| ReaderError::FileNotFound(path.to_string_lossy().into_owned()))?;
 
-    let cases: TestCases =
+    let raw: RawTestCases =
         serde_yml::from_str(&raw_str).map_err(|e| ReaderError::General(e.to_string()))?;
 
-    Ok(cases)
+    let cases = match raw.cases {
+        CasesSource::List(cases) => cases,
+        CasesSource::Path(dir) => {
+            let config_dir = path.parent().ok_or_else(|| {
+                ReaderError::General("Cannot get parent directory of config file".to_string())
+            })?;
+            let dir_path = config_dir.join(dir);
+            load_cases_from_directory(&dir_path)?
+        }
+    };
+
+    Ok(TestCases {
+        cases,
+        limit: raw.limit,
+    })
+}
+
+fn load_cases_from_directory(dir: &Path) -> Result<Vec<TestCase>, ReaderError> {
+    if !dir.exists() {
+        return Err(ReaderError::FileNotFound(
+            dir.to_string_lossy().into_owned(),
+        ));
+    }
+
+    let mut named_cases = Vec::<(String, TestCase)>::new();
+
+    for entry in fs::read_dir(dir).map_err(|e| ReaderError::General(e.to_string()))? {
+        let entry = entry.map_err(|e| ReaderError::General(e.to_string()))?;
+        let path = entry.path();
+
+        if !path.is_file() {
+            log::debug!("Skip non-file entry: {}", path.display());
+            continue;
+        }
+        if path.extension().is_none_or(|e| e != "in") {
+            log::debug!("Unknown file ignored: {}", path.display());
+            continue;
+        }
+
+        let Some(stem) = path.file_stem() else {
+            log::debug!("Invalid filename (no stem): {}", path.display());
+            continue;
+        };
+
+        let stem = stem.to_string_lossy();
+        let output_path = path.with_file_name(format!("{}.out", stem));
+
+        if !output_path.exists() {
+            log::debug!(
+                "Input file without matching .out ignored: {}",
+                path.display()
+            );
+            continue;
+        }
+
+        let input = fs::read_to_string(&path).map_err(|e| {
+            ReaderError::General(format!("Failed to read {}: {}", path.display(), e))
+        })?;
+        let answer = fs::read_to_string(&output_path).map_err(|e| {
+            ReaderError::General(format!("Failed to read {}: {}", output_path.display(), e))
+        })?;
+
+        log::info!("Loaded test case: {}", stem);
+
+        named_cases.push((stem.into_owned(), TestCase { input, answer }));
+    }
+
+    named_cases.sort_by(|(n1, _), (n2, _)| natord::compare(n1, n2));
+
+    Ok(named_cases.into_iter().map(|(_, case)| case).collect())
 }
 
 fn resolve_yaml_path<P: AsRef<Path>>(base_path: P) -> Result<PathBuf, ReaderError> {
@@ -60,6 +129,19 @@ impl TestCasePath {
 pub struct TestCases {
     pub cases: Vec<TestCase>,
     pub limit: Option<LimitInfo>,
+}
+
+#[derive(Deserialize, Debug)]
+struct RawTestCases {
+    pub cases: CasesSource,
+    pub limit: Option<LimitInfo>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum CasesSource {
+    List(Vec<TestCase>),
+    Path(String),
 }
 
 #[derive(Deserialize, Debug)]
