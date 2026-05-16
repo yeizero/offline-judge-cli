@@ -210,7 +210,7 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
                     round_start_time = Instant::now();
 
                     print_test_info(&verdict, &limit);
-                    report.update(verdict, round);
+                    report.update(verdict, solving_round);
 
                     solving_round += 1;
                     if solving_round > test_rounds {
