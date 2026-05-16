@@ -135,7 +135,7 @@ pub fn compare_styled(output: &str, answer: &str) -> StyledComparison {
     let mut final_answer = Vec::with_capacity(lines.len());
     let mut first_diff_idx = 0;
     let mut met_diff = false;
-    println!("{lines:?}");
+
     for line in lines {
         match line {
             LineChange::Empty => {}
