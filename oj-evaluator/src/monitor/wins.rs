@@ -4,7 +4,7 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use windows::Win32::Foundation::{CloseHandle, E_FAIL, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
@@ -76,12 +76,36 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
 
         let start_time = Instant::now();
 
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(self.input.as_bytes()).await?;
-            stdin.flush().await?;
-        }
+        let mut stdin = child.stdin.take().expect("Failed to open stdin");
+        let mut stdout = child.stdout.take().expect("Failed to open stdout");
+        let mut stderr = child.stderr.take().expect("Failed to open stderr");
 
-        let output_status = timeout_with_limit(self.limit, child.wait_with_output()).await;
+        let mut stdout_data = Vec::new();
+        let mut stderr_data = Vec::new();
+
+        let output_status = timeout_with_limit(self.limit, async {
+            let write_fut = async {
+                let _ = stdin.write_all(self.input.as_bytes()).await;
+                let _ = stdin.flush().await;
+                drop(stdin);
+            };
+            let read_stdout_fut = stdout.read_to_end(&mut stdout_data);
+            let read_stderr_fut = stderr.read_to_end(&mut stderr_data);
+
+            let (_, r_out, r_err) = tokio::join!(write_fut, read_stdout_fut, read_stderr_fut);
+
+            r_out?;
+            r_err?;
+            let status = child.wait().await?;
+
+            Ok::<_, std::io::Error>(std::process::Output {
+                status,
+                stdout: stdout_data,
+                stderr: stderr_data,
+            })
+        })
+        .await;
+
         let duration = job_object.get_cpu_time().unwrap_or_else(|e| {
             log::debug!("Fallback to wall clock: {e}");
             start_time.elapsed()

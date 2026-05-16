@@ -1,10 +1,11 @@
 use serde::Deserialize;
-use std::fs;
+use serde::de::{self, Deserializer, Visitor};
+use std::{fmt, fs};
 use std::path::{Path, PathBuf};
 
 use super::error::ReaderError;
 
-pub fn read_test_cases(path: TestCasePath) -> Result<TestCases, ReaderError> {
+pub fn read_test_cases(path: TestCasePath) -> Result<TestCaseSet, ReaderError> {
     let path = match path {
         TestCasePath::Specified(p) => p,
         TestCasePath::NoExtension(p) => resolve_yaml_path(p)?,
@@ -26,7 +27,7 @@ pub fn read_test_cases(path: TestCasePath) -> Result<TestCases, ReaderError> {
         }
     };
 
-    Ok(TestCases {
+    Ok(TestCaseSet {
         cases,
         limit: raw.limit,
     })
@@ -129,7 +130,7 @@ impl TestCasePath {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct TestCases {
+pub struct TestCaseSet {
     pub cases: Vec<TestCase>,
     pub limit: Option<LimitInfo>,
 }
@@ -149,7 +150,9 @@ enum CasesSource {
 
 #[derive(Deserialize, Debug)]
 pub struct TestCase {
+    #[serde(deserialize_with = "string_or_number")]
     pub input: String,
+    #[serde(deserialize_with = "string_or_number")]
     pub answer: String,
 }
 
@@ -157,4 +160,56 @@ pub struct TestCase {
 pub struct LimitInfo {
     pub memory: Option<usize>,
     pub time: Option<u64>,
+}
+
+fn string_or_number<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct StringOrNumberVisitor;
+
+    impl<'de> Visitor<'de> for StringOrNumberVisitor {
+        type Value = String;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "string or number")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(v.to_string())
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(v)
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(v.to_string())
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(v.to_string())
+        }
+
+        fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(v.to_string())
+        }
+    }
+
+    deserializer.deserialize_any(StringOrNumberVisitor)
 }

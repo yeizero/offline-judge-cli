@@ -1,6 +1,12 @@
-use prettytable::{Cell, Row, Table, format::{FormatBuilder, LinePosition, LineSeparator}};
+use prettytable::{
+    Cell, Row, Table,
+    format::{FormatBuilder, LinePosition, LineSeparator},
+};
 
-use crate::{judge::verdict::{JudgeStatus, JudgeVerdict, Limitation, SummaryInfo}, utils::{PrettyNumber, center_text}};
+use crate::{
+    judge::verdict::{JudgeStatus, JudgeVerdict, Limitation, SummaryInfo},
+    utils::{PrettyNumber, center_text},
+};
 
 const INFO_SPACE: usize = 30;
 
@@ -80,6 +86,29 @@ pub fn print_test_label(round: usize) {
     );
 }
 
+fn truncate_output(segments: &[String], start_wrapped_idx: usize) -> String {
+    const MAX_LINE: usize = 70000;
+    if segments.len() <= MAX_LINE {
+        return segments.join("");
+    }
+
+    let display_start = start_wrapped_idx.saturating_sub(2);
+    let display_end = (display_start + MAX_LINE).min(segments.len());
+
+    let mut result = String::new();
+    if display_start > 0 {
+        result.push_str("... (以上省略)\n");
+    }
+
+    result.push_str(&segments[display_start..display_end].join(""));
+
+    if display_end < segments.len() {
+        result.push_str("... (以下省略)");
+    }
+
+    result
+}
+
 pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
     match &verdict.status {
         JudgeStatus::AC => println!("✅ [AC] 答案正確！"),
@@ -88,15 +117,21 @@ pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
         JudgeStatus::Tle(_) => println!("❌ [TLE] 程式執行時間超過限制！"),
         JudgeStatus::Mle(_) => println!("❌ [MLE] 程式記憶體使用量超過限制！"),
         JudgeStatus::WA(diff) => {
+            let display_input = if verdict.input.len() > 250 || verdict.input.lines().count() > 10 {
+                "(已隱藏過長內容)"
+            } else {
+                verdict.input
+            };
+
             println!("❌ [WA] 答案比對失敗！");
             println!(
                 "\n{}\n{}\n\n{}\n{}\n{}\n{}\n",
                 center_text("Input", INFO_SPACE, "-"),
-                verdict.input,
+                display_input,
                 center_text("Program Output", INFO_SPACE, "-"),
-                diff.output,
+                truncate_output(&diff.output, diff.first_diff_segment_index),
                 center_text("Expect Output", INFO_SPACE, "-"),
-                diff.answer
+                truncate_output(&diff.answer, diff.first_diff_segment_index)
             );
         }
     };

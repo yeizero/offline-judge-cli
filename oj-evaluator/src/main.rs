@@ -105,7 +105,7 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
         }
     };
 
-    if profile.compile.is_none() || cache_state.is_fresh() {
+    if profile.compile.is_none() || (cache_state.is_fresh() && !info.force_compile) {
         if profile.compile.is_some() {
             println!("📦 重複使用編譯檔案");
         }
@@ -142,12 +142,13 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
         }
     };
 
-    let _ = cache_state
-        .save()
-        .inspect_err(|e| log::debug!("Write cache failed {e}"));
-
     match result {
-        Ok(cmd) => Some(cmd),
+        Ok(cmd) => {
+            let _ = cache_state
+                .save()
+                .inspect_err(|e| log::debug!("Write cache failed {e}"));            
+            Some(cmd)
+        },
         Err(e) => {
             match e {
                 CompileError::SE(msg) => println!("❌ [SE] {msg}"),

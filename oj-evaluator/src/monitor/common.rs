@@ -38,7 +38,7 @@ impl<T> TimingStatus<T> {
         match self {
             Self::InTime(value) => match f(value) {
                 Ok(new_value) => Ok(TimingStatus::InTime(new_value)),
-                Err(e) => Err(e)
+                Err(e) => Err(e),
             },
             Self::Aborted(d) => Ok(TimingStatus::Aborted(d)),
         }
