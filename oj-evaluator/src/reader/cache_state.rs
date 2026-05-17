@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow, bail};
+use camino::Utf8Path;
 use rkyv::{Archive, Deserialize, Serialize, rancor};
 use std::{fs, path::Path, time::SystemTime};
 
@@ -11,7 +12,7 @@ pub struct FileCacheState {
 }
 
 impl FileCacheState {
-    pub fn new(source_path: impl AsRef<Path>) -> Result<Self> {
+    pub fn new(source_path: impl AsRef<Utf8Path>) -> Result<Self> {
         let new_cache = Cache::from_source_file(source_path)?;
 
         let old_cache = Cache::read_from(KEEP_FILE.as_path())
@@ -51,10 +52,10 @@ struct Cache {
 
 impl Cache {
     /// Creates a new Cache instance from a source file's metadata.
-    fn from_source_file(path: impl AsRef<Path>) -> Result<Self> {
+    fn from_source_file(path: impl AsRef<Utf8Path>) -> Result<Self> {
         let path = path.as_ref();
-        let metadata = fs::metadata(path)
-            .map_err(|e| anyhow!("Failed to get metadata for '{}': {e}", path.display()))?;
+        let metadata =
+            fs::metadata(path).map_err(|e| anyhow!("Failed to get metadata for '{path}': {e}"))?;
 
         let mtime = metadata
             .modified()?
@@ -69,7 +70,7 @@ impl Cache {
             version_mark: VERSION_MARK,
             source_path: fs::canonicalize(path)?.to_string_lossy().into_owned(),
             source_mtime: mtime_hash,
-            source_size: metadata.len() as u32
+            source_size: metadata.len() as u32,
         })
     }
 

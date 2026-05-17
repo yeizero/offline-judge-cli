@@ -32,7 +32,6 @@ use judge::{
     evaluate,
     verdict::{CompileError, Limitation},
 };
-use reader::{TestInfo, resolve_args};
 use shared::ShellCommand;
 use tokio::time::interval;
 
@@ -42,12 +41,12 @@ use crate::{
         display::{JudgeReport, print_test_info, print_test_label},
         verdict::JudgeVerdict,
     },
-    reader::{EvaluatorConfig, FileCacheState, ensure_dir_exists, read_config},
+    reader::{FileCacheState, TestInfo, ensure_dir_exists, load_test_info},
 };
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let mut info = match resolve_args() {
+    let info = match load_test_info() {
         Ok(i) => i,
         Err(e) => {
             eprintln!("❌ [SE] {e}");
@@ -55,21 +54,12 @@ async fn main() -> ExitCode {
         }
     };
 
-    let config = match read_config() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("❌ [SE] {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    info.merge_config(&config);
-
     if let Err(e) = ensure_dir_exists(TEMP_DIR.as_path()) {
         eprintln!("❌ [SE] {e}");
         return ExitCode::FAILURE;
     }
 
-    let Some(runner) = compile_source_code(&info, &config).await else {
+    let Some(runner) = compile_source_code(&info).await else {
         return ExitCode::FAILURE;
     };
 
@@ -84,19 +74,8 @@ async fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Option<ShellCommand> {
-    let profile = config
-        .languages
-        .iter()
-        .find(|lang| lang.extension == info.file_type);
-    let Some(profile) = profile else {
-        println!(
-            "❌ [SE] 未知原始碼副檔名 {} ，請選擇 config.yaml 中含有的類型",
-            info.file_type
-        );
-        return None;
-    };
-
+async fn compile_source_code(info: &TestInfo) -> Option<ShellCommand> {
+    let profile = &info.file_profile;
     let cache_state = match FileCacheState::new(&info.file) {
         Ok(state) => state,
         Err(e) => {
@@ -146,9 +125,9 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
         Ok(cmd) => {
             let _ = cache_state
                 .save()
-                .inspect_err(|e| log::debug!("Write cache failed {e}"));            
+                .inspect_err(|e| log::debug!("Write cache failed {e}"));
             Some(cmd)
-        },
+        }
         Err(e) => {
             match e {
                 CompileError::SE(msg) => println!("❌ [SE] {msg}"),

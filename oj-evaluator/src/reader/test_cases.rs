@@ -1,7 +1,7 @@
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserialize;
 use serde::de::{self, Deserializer, Visitor};
 use std::{fmt, fs};
-use std::path::{Path, PathBuf};
 
 use super::error::ReaderError;
 
@@ -10,8 +10,10 @@ pub fn read_test_cases(path: TestCasePath) -> Result<TestCaseSet, ReaderError> {
         TestCasePath::Specified(p) => p,
         TestCasePath::NoExtension(p) => resolve_yaml_path(p)?,
     };
-    let raw_str = fs::read_to_string(&path)
-        .map_err(|_| ReaderError::FileNotFound(path.to_string_lossy().into_owned()))?;
+    let raw_str = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return Err(ReaderError::FileNotFound(path.into_string())),
+    };
 
     let raw: RawTestCases =
         serde_yml::from_str(&raw_str).map_err(|e| ReaderError::General(e.to_string()))?;
@@ -19,11 +21,14 @@ pub fn read_test_cases(path: TestCasePath) -> Result<TestCaseSet, ReaderError> {
     let cases = match raw.cases {
         CasesSource::List(cases) => cases,
         CasesSource::Path(dir) => {
-            let config_dir = path.parent().ok_or_else(|| {
-                ReaderError::General("Cannot get parent directory of config file".to_string())
-            })?;
-            let dir_path = config_dir.join(dir);
-            load_cases_from_directory(&dir_path)?
+            let mut config_folder = path;
+            if !config_folder.pop() {
+                return Err(ReaderError::General(
+                    "Cannot get parent directory of config file".to_string(),
+                ));
+            }
+            config_folder.push(dir);
+            load_cases_from_folder(config_folder)?
         }
     };
 
@@ -33,16 +38,14 @@ pub fn read_test_cases(path: TestCasePath) -> Result<TestCaseSet, ReaderError> {
     })
 }
 
-fn load_cases_from_directory(dir: &Path) -> Result<Vec<TestCase>, ReaderError> {
-    if !dir.exists() {
-        return Err(ReaderError::FileNotFound(
-            dir.to_string_lossy().into_owned(),
-        ));
+fn load_cases_from_folder(folder: Utf8PathBuf) -> Result<Vec<TestCase>, ReaderError> {
+    if !folder.is_dir() {
+        return Err(ReaderError::FolderNotFound(folder.into_string()));
     }
 
     let mut named_cases = Vec::<(String, TestCase)>::new();
 
-    for entry in fs::read_dir(dir).map_err(|e| ReaderError::General(e.to_string()))? {
+    for entry in fs::read_dir(folder).map_err(|e| ReaderError::General(e.to_string()))? {
         let entry = entry.map_err(|e| ReaderError::General(e.to_string()))?;
         let path = entry.path();
 
@@ -91,9 +94,8 @@ fn load_cases_from_directory(dir: &Path) -> Result<Vec<TestCase>, ReaderError> {
     Ok(named_cases.into_iter().map(|(_, case)| case).collect())
 }
 
-fn resolve_yaml_path<P: AsRef<Path>>(base_path: P) -> Result<PathBuf, ReaderError> {
+fn resolve_yaml_path<T: AsRef<Utf8Path>>(base_path: T) -> Result<Utf8PathBuf, ReaderError> {
     let base = base_path.as_ref();
-
     let yml_path = base.with_extension("yml");
     let yaml_path = base.with_extension("yaml");
 
@@ -105,28 +107,15 @@ fn resolve_yaml_path<P: AsRef<Path>>(base_path: P) -> Result<PathBuf, ReaderErro
         (false, true) => Ok(yaml_path),
         (true, true) => Err(ReaderError::FileNotFound(format!(
             "配置檔衝突：同時存在 {} 和 {}",
-            yml_path.display(),
-            yaml_path.display()
+            yml_path, yaml_path
         ))),
-        (false, false) => Err(ReaderError::NoConfigFile(
-            yaml_path.to_string_lossy().into_owned(),
-        )),
+        (false, false) => Err(ReaderError::NoConfigFile(yaml_path.into_string())),
     }
 }
 
 pub enum TestCasePath {
-    Specified(PathBuf),
-    NoExtension(PathBuf),
-}
-
-impl TestCasePath {
-    pub fn specified<P: AsRef<Path>>(path: P) -> Self {
-        Self::Specified(path.as_ref().to_path_buf())
-    }
-
-    pub fn no_extension<P: AsRef<Path>>(path: P) -> Self {
-        Self::NoExtension(path.as_ref().to_path_buf())
-    }
+    Specified(Utf8PathBuf),
+    NoExtension(Utf8PathBuf),
 }
 
 #[derive(Deserialize, Debug)]

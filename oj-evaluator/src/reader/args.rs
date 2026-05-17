@@ -1,10 +1,9 @@
 use super::error::ReaderError;
 use super::test_cases::{TestCase, TestCasePath, read_test_cases};
-use super::utils::{change_extension, file_exists};
-use crate::logger::init_logger;
-use crate::reader::EvaluatorConfig;
+use crate::reader::{EvaluatorConfig, LanguageProfile};
+use camino::Utf8PathBuf;
 use clap::Parser;
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
 /// Evaluator - Code Judge Tool
 #[derive(Parser, Debug)]
@@ -45,83 +44,104 @@ pub struct Args {
     pub warmup: Option<u32>,
 
     #[arg(short, long)]
-    /// Recompile code ragardless of caching.
-    pub recompile: bool,
+    /// Force to recompile code ragardless of caching.
+    pub force: bool,
 }
 
-pub fn resolve_args() -> Result<TestInfo, ReaderError> {
-    let args = Args::parse();
+pub fn resolve_args(args: Args, config: EvaluatorConfig) -> Result<TestInfo, ReaderError> {
+    let mut path = Utf8PathBuf::from(args.file);
 
-    init_logger(if args.verbose {
-        log::LevelFilter::Debug
-    } else {
-        log::LevelFilter::Warn
-    });
+    let final_ext: &str = match &args.lang {
+        Some(lang) => {
+            if !path.is_file() {
+                return Err(ReaderError::FileNotFound(lang.clone()));
+            }
+            lang
+        }
+        None => {
+            if path.is_file() {
+                path.extension().unwrap_or("")
+            } else if path.extension().is_none() {
+                let mut found_ext = None;
+                for lang_profile in &config.languages {
+                    path.set_extension(&lang_profile.extension);
+                    if path.is_file() {
+                        if let Some(old_ext) = &found_ext {
+                            return Err(ReaderError::General(format!(
+                                "發現多個可能的副檔名 (.{} vs .{})",
+                                old_ext, lang_profile.extension
+                            )));
+                        }
+                        found_ext = Some(&lang_profile.extension);
+                    }
+                }
 
-    log::debug!("{:?}", &args);
+                let Some(ext) = found_ext else {
+                    path.set_extension("");
+                    return Err(ReaderError::FileNotFound(path.into_string()));
+                };
 
-    if !file_exists(&args.file) {
-        return Err(ReaderError::FileNotFound(args.file));
-    }
-
-    let file_type = match args.lang {
-        Some(i) => i,
-        None => match Path::new(&args.file).extension() {
-            Some(extension) => extension.to_string_lossy().into_owned(),
-            None => "".to_string(),
-        },
+                path.set_extension(ext);
+                path.extension().unwrap_or("")
+            } else {
+                return Err(ReaderError::FileNotFound(path.into_string()));
+            }
+        }
     };
+
+    let file_profile = config
+        .languages
+        .into_iter()
+        .find(|l| l.extension == final_ext)
+        .ok_or_else(|| {
+            ReaderError::General(format!(
+                "未知原始碼副檔名 {final_ext} ，請選擇 config.yaml 中含有的類型"
+            ))
+        })?;
 
     if args.no_judge {
         Ok(TestInfo {
-            file_type,
-            file: args.file,
-            cases: vec![],
+            file: path.into_string(),
+            file_profile,
+            cases: Vec::new(),
             max_memory: None,
             max_time: None,
             do_judge: false,
             warmup_times: None,
-            force_compile: args.recompile,
+            force_compile: args.force,
         })
     } else {
-        let config = read_test_cases(if let Some(config) = args.config {
-            TestCasePath::specified(config)
+        let case_set = read_test_cases(if let Some(config) = args.config {
+            TestCasePath::Specified(Utf8PathBuf::from(config))
         } else {
-            TestCasePath::no_extension(change_extension(&args.file, ""))
+            let mut test_case_path = path.clone();
+            test_case_path.set_extension("");
+            TestCasePath::NoExtension(test_case_path)
         })?;
 
-        log::debug!("{:?}", &config);
-
-        let config_limit = config.limit.unwrap_or_default();
+        let case_limit = case_set.limit.unwrap_or_default();
 
         Ok(TestInfo {
-            file_type,
-            file: args.file,
-            cases: config.cases,
-            max_memory: args.memory.or(config_limit.memory),
-            max_time: args.time.or(config_limit.time).map(Duration::from_millis),
+            file: path.into_string(),
+            file_profile,
+            cases: case_set.cases,
+            max_memory: args.memory.or(case_limit.memory),
+            max_time: args.time.or(case_limit.time).map(Duration::from_millis),
             do_judge: true,
-            warmup_times: args.warmup,
-            force_compile: args.recompile,
+            warmup_times: args.warmup.or(config.warmup),
+            force_compile: args.force,
         })
     }
 }
 
+#[derive(Debug)]
 pub struct TestInfo {
     pub file: String,
-    pub file_type: String,
+    pub file_profile: LanguageProfile,
     pub cases: Vec<TestCase>,
     pub max_memory: Option<usize>,
     pub max_time: Option<Duration>,
     pub do_judge: bool,
     pub warmup_times: Option<u32>,
     pub force_compile: bool,
-}
-
-impl TestInfo {
-    pub fn merge_config(&mut self, config: &EvaluatorConfig) {
-        if self.warmup_times.is_none() {
-            self.warmup_times = config.warmup;
-        }
-    }
 }
