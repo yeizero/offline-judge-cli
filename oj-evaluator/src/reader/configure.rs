@@ -31,7 +31,7 @@ pub fn read_config() -> Result<EvaluatorConfig, ReaderError> {
     let config_path = get_config_path().map_err(|e| ReaderError::General(e.to_string()))?;
     let config_contents = fs::read_to_string(&config_path)
         .map_err(|_| ReaderError::FileNotFound(config_path.to_string_lossy().to_string()))?;
-    let root: ConfigRoot = serde_yml::from_str(&config_contents).map_err(|e| {
+    let root: ConfigRoot = serde_yaml_ng::from_str(&config_contents).map_err(|e| {
         ReaderError::General(format!("Failed to read {}: {}", config_path.display(), e))
     })?;
     log::debug!("{:?}", root.evaluator);

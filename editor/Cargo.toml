@@ -1,11 +1,11 @@
 [package]
 name = "editor"
-version = "0.2.4"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 shared = { path = "../shared" }
-anyhow = "1.0.100"
+anyhow.workspace = true
 argh = { version = "0.1.13", default-features = false, features = ["serde"] }
 crossterm = "0.29.0"
 either = "1.15.0"

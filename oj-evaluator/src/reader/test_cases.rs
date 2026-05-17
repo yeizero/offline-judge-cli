@@ -16,7 +16,7 @@ pub fn read_test_cases(path: TestCasePath) -> Result<TestCaseSet, ReaderError> {
     };
 
     let raw: RawTestCases =
-        serde_yml::from_str(&raw_str).map_err(|e| ReaderError::General(e.to_string()))?;
+        serde_yaml_ng::from_str(&raw_str).map_err(|e| ReaderError::General(e.to_string()))?;
 
     let cases = match raw.cases {
         CasesSource::List(cases) => cases,

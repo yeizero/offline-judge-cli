@@ -133,7 +133,7 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
     suite.meta.retain(|_, value| !value.is_null());
 
     let mut file = File::create(&file_path)?;
-    let yaml = serde_yml::to_string(&suite).unwrap();
+    let yaml = serde_yaml_ng::to_string(&suite).unwrap();
 
     file.write_all(yaml.as_bytes())?;
 
