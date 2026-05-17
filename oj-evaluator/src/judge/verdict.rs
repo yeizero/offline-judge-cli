@@ -6,6 +6,7 @@ use owo_colors::OwoColorize;
 
 use crate::judge::comparison::StyledDiff;
 use crate::utils::PrettyNumber;
+use std::cmp::max;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Limitation {
@@ -160,8 +161,8 @@ impl<'a> std::error::Error for CompileError<'a> {}
 pub struct SummaryInfo {
     pub success_rounds: usize,
     pub current_rounds: usize,
-    pub total_time: Duration,
-    pub total_memory: usize,
+    pub max_time: Duration,
+    pub max_memory: usize,
     worse_status: JudgeStatus,
 }
 
@@ -170,8 +171,8 @@ impl Default for SummaryInfo {
         Self {
             success_rounds: 0,
             current_rounds: 0,
-            total_time: Duration::ZERO,
-            total_memory: 0,
+            max_time: Duration::ZERO,
+            max_memory: 0,
             worse_status: JudgeStatus::AC,
         }
     }
@@ -180,12 +181,8 @@ impl Default for SummaryInfo {
 impl SummaryInfo {
     pub fn update(&mut self, verdict: JudgeVerdict) {
         self.current_rounds += 1;
-        if let Some(duration) = verdict.duration {
-            self.total_time += duration;
-        }
-        if let Some(memory) = verdict.memory {
-            self.total_memory += memory;
-        }
+        self.max_time = max(self.max_time, verdict.duration.unwrap_or(Duration::ZERO));
+        self.max_memory = max(self.max_memory, verdict.memory.unwrap_or(0));
         if verdict.is_accept() {
             self.success_rounds += 1;
         } else if verdict.status.is_severe_than(&self.worse_status) {
@@ -220,8 +217,8 @@ impl fmt::Display for SummaryInfo {
                 f,
                 "{} ({} ms, {} KiB)",
                 JudgeStatus::AC.to_str_short().bright_green(),
-                self.total_time.as_millis() / self.current_rounds as u128,
-                self.total_memory / self.current_rounds
+                self.max_time.as_millis(),
+                self.max_memory
             ),
             status => write!(f, "{}", status.to_str_short()),
         }

@@ -4,6 +4,7 @@ use cgroups_rs::Cgroup;
 use cgroups_rs::cgroup_builder::CgroupBuilder;
 use cgroups_rs::hierarchies;
 use cgroups_rs::memory::MemController;
+use libc::{setgid, setuid};
 use rand::Rng;
 use std::fs::OpenOptions;
 use std::os::fd::IntoRawFd;
@@ -52,11 +53,15 @@ impl<'a> JudgeMonitor<'a> for LinuxMonitor<'a> {
         let output_status = timeout_with_limit(self.limit, child.wait_with_output()).await;
         let elapsed_time = start_time.elapsed();
         let memory = cgroup_job.get_max_memory_usage();
+        let duration: std::time::Duration = cgroup_job.get_cpu_time().unwrap_or_else(|| {
+            log::debug!("Fallback to wall clock");
+            elapsed_time
+        });
 
         output_status.map_result(move |result| {
             let output = result?;
             Ok(MonitorOutput {
-                duration: elapsed_time,
+                duration,
                 memory,
                 status: output.status,
                 stderr: output.stderr,
@@ -78,11 +83,16 @@ impl CgroupJob {
         let hier = hierarchies::auto();
         let mut full_path = hier.root();
 
-        let cgroup_result = CgroupBuilder::new(&cgroup_name).memory().done().build(hier);
+        let cgroup_result = CgroupBuilder::new(&cgroup_name)
+            .memory()
+            .done()
+            .cpu()
+            .done()
+            .build(hier);
 
         match cgroup_result {
             Ok(cgroup) => {
-                log::debug!("cgruop ver {}", if cgroup.v2() {"2"} else {"1"});
+                log::debug!("cgroup ver {}", if cgroup.v2() { "2" } else { "1" });
                 full_path.push(cgroup.path());
                 Ok(Self {
                     cgroup: Some(cgroup),
@@ -126,6 +136,21 @@ impl CgroupJob {
         (max_usage_in_bytes / 1024).try_into().ok()
     }
 
+    pub fn get_cpu_time(&self) -> Option<std::time::Duration> {
+        let cgroup = self.cgroup.as_ref()?;
+        let cpu_controller: &cgroups_rs::cpu::CpuController = cgroup.controller_of()?;
+        let cpu_stats = cpu_controller.cpu();
+
+        let usage_usec = cpu_stats
+            .stat
+            .lines()
+            .find(|line| line.starts_with("usage_usec"))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|value| value.parse::<u64>().ok())?;
+
+        Some(std::time::Duration::from_micros(usage_usec))
+    }
+
     pub fn spawn_in_cgroup(&self, runner: &ShellCommand) -> anyhow::Result<Child> {
         let mut cmd = runner.build_tokio();
 
@@ -164,12 +189,18 @@ impl CgroupJob {
                     let result = write(tasks_fd, buf2.as_ptr() as *const _, pid_bytes.len() + 1);
 
                     let _ = close(tasks_fd);
-
-                    if result >= 0 {
-                        Ok(())
-                    } else {
-                        Err(std::io::Error::last_os_error())
+                    if result < 0 {
+                        return Err(std::io::Error::last_os_error());
                     }
+
+                    // if setgid(65534) != 0 {
+                    //     return Err(std::io::Error::last_os_error());
+                    // }
+                    // if setuid(65534) != 0 {
+                    //     return Err(std::io::Error::last_os_error());
+                    // }
+
+                    Ok(())
                 });
             };
         }

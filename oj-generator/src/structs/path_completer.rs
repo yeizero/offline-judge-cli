@@ -122,6 +122,6 @@ fn fuzzy_sort(input: &str, vecs: &[String]) -> Vec<(String, i64)> {
         })
         .collect();
 
-    matches.sort_by(|a, b| b.1.cmp(&a.1));
+    matches.sort_by_key(|b| std::cmp::Reverse(b.1));
     matches
 }

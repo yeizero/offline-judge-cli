@@ -32,7 +32,6 @@ use judge::{
     evaluate,
     verdict::{CompileError, Limitation},
 };
-use reader::{TestInfo, resolve_args};
 use shared::ShellCommand;
 use tokio::time::interval;
 
@@ -42,12 +41,12 @@ use crate::{
         display::{JudgeReport, print_test_info, print_test_label},
         verdict::JudgeVerdict,
     },
-    reader::{EvaluatorConfig, FileCacheState, ensure_dir_exists, read_config},
+    reader::{FileCacheState, TestInfo, ensure_dir_exists, load_test_info},
 };
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let mut info = match resolve_args() {
+    let info = match load_test_info() {
         Ok(i) => i,
         Err(e) => {
             eprintln!("❌ [SE] {e}");
@@ -55,21 +54,12 @@ async fn main() -> ExitCode {
         }
     };
 
-    let config = match read_config() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("❌ [SE] {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    info.merge_config(&config);
-
     if let Err(e) = ensure_dir_exists(TEMP_DIR.as_path()) {
         eprintln!("❌ [SE] {e}");
         return ExitCode::FAILURE;
     }
 
-    let Some(runner) = compile_source_code(&info, &config).await else {
+    let Some(runner) = compile_source_code(&info).await else {
         return ExitCode::FAILURE;
     };
 
@@ -84,19 +74,8 @@ async fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Option<ShellCommand> {
-    let profile = config
-        .languages
-        .iter()
-        .find(|lang| lang.extension == info.file_type);
-    let Some(profile) = profile else {
-        println!(
-            "❌ [SE] 未知原始碼副檔名 {} ，請選擇 config.yaml 中含有的類型",
-            info.file_type
-        );
-        return None;
-    };
-
+async fn compile_source_code(info: &TestInfo) -> Option<ShellCommand> {
+    let profile = &info.file_profile;
     let cache_state = match FileCacheState::new(&info.file) {
         Ok(state) => state,
         Err(e) => {
@@ -105,7 +84,7 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
         }
     };
 
-    if profile.compile.is_none() || cache_state.is_fresh() {
+    if profile.compile.is_none() || (cache_state.is_fresh() && !info.force_compile) {
         if profile.compile.is_some() {
             println!("📦 重複使用編譯檔案");
         }
@@ -142,12 +121,13 @@ async fn compile_source_code(info: &TestInfo, config: &EvaluatorConfig) -> Optio
         }
     };
 
-    let _ = cache_state
-        .save()
-        .inspect_err(|e| log::debug!("Write cache failed {e}"));
-
     match result {
-        Ok(cmd) => Some(cmd),
+        Ok(cmd) => {
+            let _ = cache_state
+                .save()
+                .inspect_err(|e| log::debug!("Write cache failed {e}"));
+            Some(cmd)
+        }
         Err(e) => {
             match e {
                 CompileError::SE(msg) => println!("❌ [SE] {msg}"),
@@ -183,38 +163,33 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
     }
 
     let concurrency_limit = num_cpus::get();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, JudgeVerdict)>(concurrency_limit);
-
-    let evaluation_tasks = futures::stream::iter(info.cases.iter().enumerate())
-        .for_each_concurrent(concurrency_limit, |(idx, case)| {
-            let tx = tx.clone();
+    let mut evaluation_stream = futures::stream::iter(info.cases.iter().enumerate())
+        .map(|(idx, case)| {
             let runner = &runner;
+            let limit = &limit;
             async move {
-                let verdict = evaluate(runner, &case.input, &case.answer, &limit).await;
-                let _ = tx.send((idx + 1, verdict)).await;
+                let verdict = evaluate(runner, &case.input, &case.answer, limit).await;
+                (idx + 1, verdict)
             }
-        });
+        })
+        .buffer_unordered(concurrency_limit);
 
     let mut solving_round = 1;
-    let mut waiting_verdict: HashMap<usize, JudgeVerdict<'_>> = HashMap::new();
+    let mut waiting_verdicts: HashMap<usize, JudgeVerdict<'_>> = HashMap::new();
     let mut ticker: tokio::time::Interval = interval(Duration::from_millis(100));
     let mut round_start_time = Instant::now();
 
     print_test_label(1);
 
-    tokio::pin!(evaluation_tasks);
-
     while solving_round <= test_rounds {
         tokio::select! {
-            _ = &mut evaluation_tasks => {},
-
-            Some((round, verd)) = rx.recv() => {
-                waiting_verdict.insert(round, verd);
-                while let Some(verdict) = waiting_verdict.remove(&solving_round) {
+            Some((round, verd)) = evaluation_stream.next() => {
+                waiting_verdicts.insert(round, verd);
+                while let Some(verdict) = waiting_verdicts.remove(&solving_round) {
                     round_start_time = Instant::now();
 
                     print_test_info(&verdict, &limit);
-                    report.update(verdict, round);
+                    report.update(verdict, solving_round);
 
                     solving_round += 1;
                     if solving_round > test_rounds {

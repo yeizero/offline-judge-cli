@@ -7,7 +7,7 @@ use shared::{bridge::KeyMapListProtocal, get_config_path};
 pub fn read_config() -> anyhow::Result<GeneratorConfig> {
     let config_path = get_config_path()?;
     let config_contents = fs::read_to_string(&config_path)?;
-    let root: ConfigRoot = serde_yml::from_str(&config_contents)?;
+    let root: ConfigRoot = serde_yaml_ng::from_str(&config_contents)?;
     Ok(root.into_config())
 }
 
@@ -64,7 +64,7 @@ pub struct Plugin {
     pub name: String,
     pub command: String,
     #[serde(default)]
-    pub config: HashMap<String, serde_yml::Value>,
+    pub config: HashMap<String, serde_yaml_ng::Value>,
 }
 
 #[derive(Debug, Deserialize)]
