@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Stdio;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::Command as TokioCommand;
-use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 
 use crate::config::TEMP_DIR;
@@ -26,23 +26,23 @@ fn build_command_from_template(
     ShellCommand::parse_str(&final_command_str)
 }
 
-async fn pipe_stream<R, W>(mut stream: R, mut parent_stream: W, tx: mpsc::Sender<()>)
-where
+async fn pipe_stream<R, W>(
+    mut stream: R,
+    mut parent_stream: W,
+    mut tx: Option<oneshot::Sender<()>>,
+) where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
     let mut reader = BufReader::new(&mut stream);
     let mut buf = vec![0; 1024];
-    let mut maybe_tx = Some(tx);
-
     loop {
         match reader.read(&mut buf).await {
             Ok(0) => break,
             Ok(bytes_read) => {
-                if let Some(tx) = maybe_tx.take() {
-                    let _ = tx.send(()).await;
+                if let Some(tx) = tx.take() {
+                    let _ = tx.send(());
                 }
-
                 if let Err(e) = parent_stream.write_all(&buf[..bytes_read]).await {
                     log::debug!("Failed to write to parent stream: {}", e);
                     break;
@@ -56,37 +56,34 @@ where
     }
 }
 
-pub async fn run_command_with_onetime_callback(
+async fn run_command_with_onetime_callback(
     cmd: &mut TokioCommand,
     on_first_output: impl FnOnce(),
 ) -> io::Result<std::process::ExitStatus> {
-    let (tx, mut rx) = mpsc::channel(1);
+    let (tx_out, rx_out) = oneshot::channel::<()>();
+    let (tx_err, rx_err) = oneshot::channel::<()>();
 
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
-
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
     let mut io_tasks = JoinSet::new();
-    io_tasks.spawn(pipe_stream(stdout, tokio::io::stdout(), tx.clone()));
-    io_tasks.spawn(pipe_stream(stderr, tokio::io::stderr(), tx));
+    io_tasks.spawn(pipe_stream(stdout, tokio::io::stdout(), Some(tx_out)));
+    io_tasks.spawn(pipe_stream(stderr, tokio::io::stderr(), Some(tx_err)));
 
     tokio::select! {
         biased;
-        _ = rx.recv() => { on_first_output(); },
-        _ = child.wait() => {}
+        Ok(_) = rx_out => { on_first_output(); },
+        Ok(_) = rx_err => { on_first_output(); },
+        _ = child.wait() => {},
     }
 
     let status = child.wait().await?;
-
-    rx.close();
-
     while let Some(res) = io_tasks.join_next().await {
         if let Err(e) = res {
             log::warn!("I/O task panicked: {:?}", e);
         }
     }
-
     Ok(status)
 }
 
@@ -133,6 +130,7 @@ pub async fn prepare_command<'a>(
                     CompileError::SE(format!("Failed to parse compile command: {e}").into())
                 })?
                 .build_tokio();
+        compile_cmd.kill_on_drop(true);
 
         let compile_status =
             run_command_with_onetime_callback(&mut compile_cmd, on_compile_output_start)

@@ -121,6 +121,8 @@ async fn compile_source_code(info: &TestInfo) -> Option<ShellCommand> {
         }
     };
 
+    println!();
+
     match result {
         Ok(cmd) => {
             let _ = cache_state
