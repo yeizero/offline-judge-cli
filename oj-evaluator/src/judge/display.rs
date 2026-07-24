@@ -87,7 +87,7 @@ pub fn print_test_label(round: usize) {
 }
 
 fn truncate_output(segments: &[String], start_wrapped_idx: usize) -> String {
-    const MAX_LINE: usize = 70000;
+    const MAX_LINE: usize = 7;
     if segments.len() <= MAX_LINE {
         return segments.join("");
     }
