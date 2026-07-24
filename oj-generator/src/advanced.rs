@@ -1,11 +1,14 @@
 use crate::configure::{GeneratorConfig, Plugin};
 use crate::helper::truncate_with_ellipsis;
-use crate::structs::{TestSuite, command_content::*};
+use crate::structs::{
+    TestSuite,
+    command_content::{ConfigResponse, MessageContent, StringContent},
+};
 use crate::{error, escapable, info, warn};
 use inquire::ui::{Color, RenderConfig, StyleSheet};
 use inquire::{Confirm, InquireError, Select, Text};
 use owo_colors::OwoColorize;
-use shared::{get_exe_dir, ShellCommand};
+use shared::{ShellCommand, get_exe_dir};
 use std::fmt::Display;
 use std::io::{BufRead, BufReader, Write};
 use std::process::Stdio;
@@ -28,11 +31,12 @@ macro_rules! parse_json_or_continue {
     };
 }
 
+#[allow(clippy::too_many_lines, reason = "TODO CONSIDER")]
 pub fn prompt_advanced_options(
     config: &GeneratorConfig,
     old_suite: &TestSuite,
 ) -> Result<Option<TestSuite>, InquireError> {
-    let mut options = Vec::with_capacity(1 + config.plugins.as_ref().map_or(0, |p| p.len()));
+    let mut options = Vec::with_capacity(1 + config.plugins.as_ref().map_or(0, Vec::len));
     options.push(Action::Cancel);
 
     if let Some(plugins) = config.plugins.as_ref() {
@@ -57,6 +61,7 @@ pub fn prompt_advanced_options(
     }
 
     // SAFE `unwrap`: `plugins` are retrieved from config, which is loaded via exe_dir.
+    #[allow(clippy::unwrap_used)]
     let exe_path = get_exe_dir().unwrap();
 
     let mut child = ShellCommand::parse_str(&plugin.command)?
@@ -69,7 +74,9 @@ pub fn prompt_advanced_options(
         .env("PYTHONIOENCODING", "UTF8")
         .spawn()?;
 
+    #[allow(clippy::unwrap_used)]
     let mut stdin = child.stdin.take().unwrap();
+    #[allow(clippy::unwrap_used)]
     let stdout = child.stdout.take().unwrap();
 
     let reader = BufReader::new(stdout);
@@ -80,7 +87,7 @@ pub fn prompt_advanced_options(
 
         let trimmed = line.trim();
         let Some(rest) = trimmed.strip_prefix("/") else {
-            println!("{}", line);
+            println!("{line}");
             continue;
         };
 
@@ -101,7 +108,7 @@ pub fn prompt_advanced_options(
                     Confirm::new(&content.0).with_default(true).prompt(),
                     return Ok(None)
                 )?;
-                stdin.write_all(&[status as u8 + b'0', b'\n'])?;
+                stdin.write_all(&[u8::from(status) + b'0', b'\n'])?;
             }
             "info" => {
                 let content: StringContent = parse_json_or_continue!(content);
@@ -123,6 +130,7 @@ pub fn prompt_advanced_options(
                     },
                 };
 
+                #[allow(clippy::unwrap_used)]
                 stdin.write_all(serde_json::to_string(&config).unwrap().as_bytes())?;
                 stdin.write_all(b"\n")?;
             }
@@ -130,6 +138,7 @@ pub fn prompt_advanced_options(
                 let mut merged_suite = old_suite.clone();
                 merged_suite.merge(suite.clone());
 
+                #[allow(clippy::unwrap_used)]
                 stdin.write_all(serde_json::to_string(&merged_suite).unwrap().as_bytes())?;
                 stdin.write_all(b"\n")?;
             }
@@ -154,7 +163,7 @@ pub fn prompt_advanced_options(
             } else {
                 match status.code() {
                     Some(code) => {
-                        error!(format_args!("Subprocess Exited with status code: {code}"))
+                        error!(format_args!("Subprocess Exited with status code: {code}"));
                     }
                     None => error!("Subprocess terminated by signal"),
                 }
@@ -170,6 +179,7 @@ pub fn prompt_advanced_options(
 
 pub fn merge_with_tip(new_suite: Option<TestSuite>, old_suite: &mut TestSuite) {
     if let Some(suite) = new_suite {
+        #[allow(clippy::useless_let_if_seq)]
         let mut no_change = true;
 
         if !suite.cases.is_empty() {
@@ -197,7 +207,7 @@ pub fn merge_with_tip(new_suite: Option<TestSuite>, old_suite: &mut TestSuite) {
         }
 
         old_suite.merge(suite);
-    };
+    }
 }
 
 enum Action<'a> {
@@ -205,7 +215,7 @@ enum Action<'a> {
     External(&'a Plugin),
 }
 
-impl<'a> Display for Action<'a> {
+impl Display for Action<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Cancel => write!(f, "返回"),

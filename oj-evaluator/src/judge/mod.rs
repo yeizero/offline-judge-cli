@@ -45,7 +45,7 @@ async fn evaluate_with_system_error<'a, 'b>(
             verdict.memory(output.memory);
 
             if let Some(code) = output.status.code() {
-                log::debug!("Exit code: {}", code);
+                log::debug!("Exit code: {code}");
             } else {
                 #[cfg(unix)]
                 if let Some(signal) = output.status.signal() {
@@ -73,7 +73,7 @@ async fn evaluate_with_system_error<'a, 'b>(
                         verdict.status(JudgeStatus::WA(diff));
                     }
                 }
-            };
+            }
 
             if verdict.is_accept() {
                 if let Some(max_time) = limit.max_time
@@ -123,13 +123,13 @@ fn get_error_exit_status_description(status: ExitStatus) -> Option<Cow<'static, 
     if let Some(code) = status.code() {
         #[cfg(windows)]
         {
-            let description = match code as u32 {
-                0xC0000005 => "Access Violation",
-                0xC0000094 => "Divide by Zero",
-                0xC00000FD => "Stack Overflow",
-                0xC000001D => "Illegal Instruction",
+            let description = match code.cast_unsigned() {
+                0xC000_0005 => "Access Violation",
+                0xC000_0094 => "Divide by Zero",
+                0xC000_00FD => "Stack Overflow",
+                0xC000_001D => "Illegal Instruction",
                 0 => return None,
-                _ => return Some(Cow::Owned(format!("Application Exit Code: {}", code))),
+                _ => return Some(Cow::Owned(format!("Application Exit Code: {code}"))),
             };
             Some(Cow::Borrowed(description))
         }

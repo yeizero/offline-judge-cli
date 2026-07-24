@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::{
@@ -35,11 +36,11 @@ struct ScrollOffset {
 enum CommandEffect {
     /// Will do visual update and cancel selection
     ///
-    /// (start, old_count, new_count)
+    /// (start, old count, new count)
     TextChanged(usize, usize, usize),
     /// Will do visual update about cursor
     CursorDirty,
-    /// Will not run handle_selection()
+    /// Will not run `handle_selection()`
     SelectionFixed,
     /// Will not do any visual update
     None,
@@ -129,7 +130,7 @@ impl Editor {
         Ok(())
     }
 
-    pub fn text(&self) -> &Rope {
+    pub const fn text(&self) -> &Rope {
         &self.text
     }
 
@@ -140,10 +141,10 @@ impl Editor {
     fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(ev) => {
-                if !ev.is_release() {
-                    self.handle_key_event(ev)
-                } else {
+                if ev.is_release() {
                     Ok(())
+                } else {
+                    self.handle_key_event(ev)
                 }
             }
             Event::Mouse(ev) => {
@@ -564,9 +565,12 @@ impl Editor {
             self.full_redraw_request = false;
         }
 
+        // Materialize ranges to end the borrow of `dirty_lines` before
+        // mutably borrowing `self` in `draw_single_line`.
+        #[allow(clippy::needless_collect)]
         for (start, end) in self
             .dirty_lines
-            .iter_dirty_ranges(query_range.clone())
+            .iter_dirty_ranges(query_range)
             .collect::<Vec<_>>()
         {
             for line_idx in start..=end {
@@ -750,7 +754,7 @@ impl Editor {
 
     fn scroll_to_cursor(&mut self) {
         let old_offset = self.scroll_offset;
-        let content_height = self.content_height() as u32;
+        let content_height = u32::from(self.content_height());
         if content_height == 0 {
             return;
         }
@@ -802,14 +806,14 @@ impl Editor {
         }
     }
 
-    fn content_width(&self) -> usize {
+    const fn content_width(&self) -> usize {
         let w = (self.terminal_width as usize)
             .saturating_sub(Self::LINE_NUMBER_WIDTH)
             .saturating_sub(1);
         if w == 0 { 1_000_000_000 } else { w }
     }
 
-    fn content_height(&self) -> u16 {
+    const fn content_height(&self) -> u16 {
         self.terminal_height.saturating_sub(Self::STATUS_BAR_HEIGHT)
     }
 
@@ -1177,7 +1181,7 @@ impl Editor {
 
 pub trait RopeSliceExt<'a> {
     fn chunk_by_width_cjk(&'a self, max_width: usize) -> impl Iterator<Item = RopeSlice<'a>>;
-    /// Total number of chars in the RopeSlice, excluding a trailing \n.
+    /// Total number of chars in the `RopeSlice`, excluding a trailing \n.
     ///
     /// Runs in O(log len(slice)) time.
     fn len_chars_without_ending(&'a self) -> usize;
@@ -1245,7 +1249,7 @@ fn classify_char(c: char) -> CharKind {
     }
 }
 
-/// (offset, next_kind)
+/// (offset, next kind)
 fn consume_while_kind(iter: &mut Chars<'_>, kind: CharKind) -> (usize, Option<CharKind>) {
     let mut offset = 0;
     for c in iter {

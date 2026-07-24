@@ -31,21 +31,21 @@ impl YamlPathCompleter {
 
         let input_path = std::path::PathBuf::from(input);
 
-        let fallback_parent = input_path
-            .parent()
-            .map(|p| {
+        let fallback_parent = input_path.parent().map_or_else(
+            || std::path::PathBuf::from("."),
+            |p| {
                 if p.to_string_lossy() == "" {
                     std::path::PathBuf::from(".")
                 } else {
                     p.to_owned()
                 }
-            })
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
+            },
+        );
 
         let scan_dir = if input.ends_with('/') {
             input_path
         } else {
-            fallback_parent.clone()
+            fallback_parent
         };
 
         if !scan_dir.is_dir() {
@@ -60,15 +60,14 @@ impl YamlPathCompleter {
                 && path
                     .extension()
                     .map(|ext| ext.to_string_lossy())
-                    .map(|ext| self.supported_code_types.iter().any(|s| s == ext.as_ref()))
-                    .unwrap_or(false)
+                    .is_some_and(|ext| self.supported_code_types.iter().any(|s| s == ext.as_ref()))
             {
                 path.set_extension("yaml");
                 let status = test_create_file(&path);
                 if matches!(status, FileStatus::NotFound) {
                     self.paths.push(
                         path.to_string_lossy()
-                            .replace("\\", "/")
+                            .replace('\\', "/")
                             .trim_start_matches("./")
                             .to_string(),
                     );
@@ -103,10 +102,7 @@ impl Autocomplete for YamlPathCompleter {
             Replacement::Some(suggestion)
         } else {
             let matches = self.fuzzy_sort(input);
-            matches
-                .first()
-                .map(|(path, _)| Replacement::Some(path.clone()))
-                .unwrap_or(Replacement::None)
+            matches.first().map(|(path, _)| path.clone())
         })
     }
 }

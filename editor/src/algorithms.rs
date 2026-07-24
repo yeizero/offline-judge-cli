@@ -9,7 +9,7 @@ pub struct DirtyLines {
 
 impl DirtyLines {
     /// O(1)
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { ranges: Vec::new() }
     }
 
@@ -61,7 +61,7 @@ impl DirtyLines {
         }
     }
 
-    /// O(log N) - 使用二分查找 (binary_search_by)
+    /// O(log N) - 使用二分查找
     pub fn is_marked(&self, line: usize) -> bool {
         self.ranges
             .binary_search_by(|(start, end)| {
@@ -131,23 +131,23 @@ pub struct DirtyRangesIter<'a> {
     query_end: usize,
 }
 
-impl<'a> Iterator for DirtyRangeIter<'a> {
+impl Iterator for DirtyRangeIter<'_> {
     type Item = (usize, bool);
     /// O(log N) - 每迭代一次，調用一次 O(log N) 的 `is_marked`。
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current < self.end {
-            let line = self.current;
-            self.current += 1;
-            // 複雜度來自這裡：O(log N)
-            let is_dirty = self.dirty_lines.is_marked(line);
-            Some((line, is_dirty))
-        } else {
-            None
+        if self.current >= self.end {
+            return None;
         }
+
+        let line = self.current;
+        self.current += 1;
+        // 複雜度來自這裡：O(log N)
+        let is_dirty = self.dirty_lines.is_marked(line);
+        Some((line, is_dirty))
     }
 }
 
-impl<'a> Iterator for DirtyRangesIter<'a> {
+impl Iterator for DirtyRangesIter<'_> {
     type Item = (usize, usize);
 
     /// O(1) amortized / O(K) total - 在整個迭代過程中，每個區間最多被檢查一次。
@@ -178,18 +178,17 @@ impl<'a> Iterator for DirtyRangesIter<'a> {
 }
 
 pub trait MarkIndex {
-    fn to_range(&self) -> (usize, usize);
+    fn to_range(self) -> (usize, usize);
 }
 
 impl MarkIndex for usize {
-    fn to_range(&self) -> (usize, usize) {
-        (*self, *self) // 單行，閉區間 [N, N]
+    fn to_range(self) -> (usize, usize) {
+        (self, self)
     }
 }
 
 impl MarkIndex for std::ops::Range<usize> {
-    fn to_range(&self) -> (usize, usize) {
-        // [start, end) -> [start, end - 1]
+    fn to_range(self) -> (usize, usize) {
         if self.is_empty() {
             (self.start, self.start)
         } else {
@@ -199,8 +198,7 @@ impl MarkIndex for std::ops::Range<usize> {
 }
 
 impl MarkIndex for std::ops::RangeInclusive<usize> {
-    fn to_range(&self) -> (usize, usize) {
-        // [start, end] -> [start, end]
+    fn to_range(self) -> (usize, usize) {
         if self.is_empty() {
             (*self.start(), *self.start())
         } else {

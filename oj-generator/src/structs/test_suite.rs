@@ -14,7 +14,7 @@ impl TestSuite {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn merge(&mut self, other: TestSuite) {
+    pub fn merge(&mut self, other: Self) {
         self.cases.extend(other.cases);
         self.meta.extend(other.meta);
         if let Some(limit) = other.limit {
@@ -51,10 +51,6 @@ pub struct TestLimit {
 
 impl TestLimit {
     pub fn into_option(self) -> Option<Self> {
-        if self.memory.is_some() || self.time.is_some() {
-            Some(self)
-        } else {
-            None
-        }
+        (self.memory.is_some() || self.time.is_some()).then_some(self)
     }
 }

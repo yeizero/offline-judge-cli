@@ -6,8 +6,8 @@ pub struct OptionalInput<T> {
 }
 
 impl<T> OptionalInput<T> {
-    pub fn new(value: Option<T>) -> Self {
-        OptionalInput { value }
+    pub const fn new(value: Option<T>) -> Self {
+        Self { value }
     }
 }
 
@@ -16,7 +16,7 @@ where
     T: Clone,
 {
     fn clone(&self) -> Self {
-        OptionalInput {
+        Self {
             value: self.value.clone(),
         }
     }
@@ -30,10 +30,10 @@ where
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().parse::<T>() {
-            Ok(value) => Ok(OptionalInput::new(Some(value))),
+            Ok(value) => Ok(Self::new(Some(value))),
             Err(e) => {
                 if s.is_empty() {
-                    Ok(OptionalInput::new(None))
+                    Ok(Self::new(None))
                 } else {
                     Err(e)
                 }
@@ -48,7 +48,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.value {
-            Some(v) => write!(f, "{}", v),
+            Some(v) => write!(f, "{v}"),
             None => write!(f, ""),
         }
     }
@@ -66,7 +66,7 @@ impl fmt::Display for LabelWithOptionIndex {
 }
 
 impl LabelWithOptionIndex {
-    pub fn new(index: Option<usize>, label: String) -> Self {
+    pub const fn new(index: Option<usize>, label: String) -> Self {
         Self { label, index }
     }
 }

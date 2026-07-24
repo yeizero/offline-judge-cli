@@ -59,17 +59,22 @@ pub enum FileStatus {
 }
 
 impl FileStatus {
-    pub fn to_str(&self) -> &str {
+    pub const fn to_str(&self) -> &str {
         match self {
-            FileStatus::NotFound => "檔案不存在",
-            FileStatus::Exists => "檔案已存在",
-            FileStatus::ParentNotExists => "目標檔案的資料夾不存在",
-            FileStatus::IsDir => "目標位置為資料夾",
-            FileStatus::Failed => "檔案不合法",
+            Self::NotFound => "檔案不存在",
+            Self::Exists => "檔案已存在",
+            Self::ParentNotExists => "目標檔案的資料夾不存在",
+            Self::IsDir => "目標位置為資料夾",
+            Self::Failed => "檔案不合法",
         }
     }
 }
 
+#[expect(
+    clippy::unnecessary_wraps,
+    clippy::needless_pass_by_value,
+    reason = "keep flexibility"
+)]
 pub fn file_path_validator(
     input: String,
 ) -> Result<Validation, Box<dyn std::error::Error + Send + Sync>> {
@@ -82,8 +87,8 @@ pub fn file_path_validator(
         FileStatus::NotFound => Ok(Validation::Valid),
         status @ FileStatus::Exists => Ok(Validation::Invalid(ErrorMessage::Custom(format!(
             "{} ({})",
-            &status.to_str(),
-            &input
+            status.to_str(),
+            input
         )))),
         status => Ok(Validation::Invalid(ErrorMessage::Custom(
             status.to_str().to_string(),
@@ -92,7 +97,7 @@ pub fn file_path_validator(
 }
 
 /// Truncate a string to a maximum length and append ellipsis if necessary.
-pub fn truncate_with_ellipsis<'a>(str: &'a str, n: usize) -> Cow<'a, str> {
+pub fn truncate_with_ellipsis(str: &str, n: usize) -> Cow<'_, str> {
     let byte_index = str.char_indices().nth(n).map(|(idx, _)| idx);
 
     match byte_index {

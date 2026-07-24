@@ -15,11 +15,11 @@ pub struct Limitation {
 }
 
 impl Limitation {
-    pub fn max_memory(&mut self, max_memory: Option<usize>) -> &mut Self {
+    pub const fn max_memory(&mut self, max_memory: Option<usize>) -> &mut Self {
         self.max_memory = max_memory;
         self
     }
-    pub fn max_time(&mut self, max_time: Option<Duration>) -> &mut Self {
+    pub const fn max_time(&mut self, max_time: Option<Duration>) -> &mut Self {
         self.max_time = max_time;
         self
     }
@@ -51,16 +51,16 @@ impl<'a> JudgeVerdict<'a> {
             memory: None,
         }
     }
-    pub fn is_accept(&self) -> bool {
+    pub const fn is_accept(&self) -> bool {
         self.status.is_accept()
     }
     pub(super) fn status(&mut self, status: JudgeStatus) {
         self.status = status;
     }
-    pub(super) fn duration(&mut self, duration: Option<Duration>) {
+    pub(super) const fn duration(&mut self, duration: Option<Duration>) {
         self.duration = duration;
     }
-    pub(super) fn memory(&mut self, memory: Option<usize>) {
+    pub(super) const fn memory(&mut self, memory: Option<usize>) {
         self.memory = memory;
     }
 }
@@ -82,11 +82,11 @@ pub enum JudgeStatus {
 }
 
 impl JudgeStatus {
-    pub fn is_accept(&self) -> bool {
+    pub const fn is_accept(&self) -> bool {
         matches!(self, Self::AC)
     }
 
-    pub fn to_str_short(&self) -> &str {
+    pub const fn to_str_short(&self) -> &str {
         match self {
             Self::RE(_) => "運行時錯誤 RE",
             Self::SE(_) => "系統錯誤 RE",
@@ -97,7 +97,7 @@ impl JudgeStatus {
         }
     }
 
-    pub(crate) fn severity(&self) -> u8 {
+    pub(crate) const fn severity(&self) -> u8 {
         match self {
             Self::SE(_) => 5,
             Self::RE(_) => 4,
@@ -124,7 +124,7 @@ impl JudgeStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum TleType {
     Abort(Duration),
     Normal(Duration),
@@ -147,7 +147,7 @@ pub enum CompileError<'a> {
     CE(Cow<'a, str>),
 }
 
-impl<'a> fmt::Display for CompileError<'a> {
+impl fmt::Display for CompileError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::SE(msg) => write!(f, "系統錯誤 (SE): {msg}"),
@@ -156,7 +156,7 @@ impl<'a> fmt::Display for CompileError<'a> {
     }
 }
 
-impl<'a> std::error::Error for CompileError<'a> {}
+impl std::error::Error for CompileError<'_> {}
 
 pub struct SummaryInfo {
     pub success_rounds: usize,
@@ -189,7 +189,7 @@ impl SummaryInfo {
             self.worse_status = verdict.status;
         }
     }
-    pub fn score(&self) -> usize {
+    pub const fn score(&self) -> usize {
         self.success_rounds * 100 / self.current_rounds
     }
 }

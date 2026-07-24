@@ -81,6 +81,7 @@ fn process_segments(
     result
 }
 
+#[allow(clippy::too_many_lines, reason = "TODO CONSIDER")]
 pub fn compare_styled(output: &str, answer: &str) -> StyledComparison {
     let output_raw_lines: Vec<&str> = output.trim_end().lines().map(str::trim_end).collect();
     let answer_raw_lines: Vec<&str> = answer.trim_end().lines().map(str::trim_end).collect();
@@ -96,7 +97,9 @@ pub fn compare_styled(output: &str, answer: &str) -> StyledComparison {
         for change in diff.iter_inline_changes(op) {
             match change.tag() {
                 ChangeTag::Equal => {
+                    #[expect(clippy::unwrap_used, reason="must be Some due to the Equal tag")]
                     let old_idx = change.old_index().unwrap();
+                    #[expect(clippy::unwrap_used)]
                     let new_idx = change.new_index().unwrap();
                     if old_idx == new_idx {
                         lines[old_idx] = LineChange::Equal(output_raw_lines[old_idx]);
@@ -116,12 +119,14 @@ pub fn compare_styled(output: &str, answer: &str) -> StyledComparison {
                     }
                 }
                 ChangeTag::Delete => {
+                    #[expect(clippy::unwrap_used, reason="must be Some due to the Delete tag")]
                     let old_idx = change.old_index().unwrap();
                     for (emph, val) in change.values() {
                         push_to_diff(&mut lines[old_idx], DiffTarget::Output, *emph, val);
                     }
                 }
                 ChangeTag::Insert => {
+                    #[expect(clippy::unwrap_used, reason="must be Some due to the Insert tag")]
                     let new_idx = change.new_index().unwrap();
                     for (emph, val) in change.values() {
                         push_to_diff(&mut lines[new_idx], DiffTarget::Answer, *emph, val);
@@ -194,6 +199,7 @@ pub fn compare_styled(output: &str, answer: &str) -> StyledComparison {
     })
 }
 
+#[derive(Clone, Copy)]
 enum DiffTarget {
     Output,
     Answer,

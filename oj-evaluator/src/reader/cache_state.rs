@@ -40,7 +40,7 @@ impl FileCacheState {
     }
 }
 
-const VERSION_MARK: u32 = 0xF0000001;
+const VERSION_MARK: u32 = 0xF000_0001;
 
 #[derive(Archive, Deserialize, Serialize, PartialEq, Debug)]
 struct Cache {
@@ -64,12 +64,14 @@ impl Cache {
         // The logic for calculating a stable, low-precision timestamp.
         // Division by 64 reduces sensitivity to insignificant sub-second changes.
         // Adding 1 ensures the timestamp is never zero, which stands for an empty/invalid state.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
         let mtime_hash = ((mtime.as_millis() / 64) % (u64::MAX as u128)) as u64 + 1;
 
         Ok(Self {
             version_mark: VERSION_MARK,
             source_path: fs::canonicalize(path)?.to_string_lossy().into_owned(),
             source_mtime: mtime_hash,
+            #[allow(clippy::cast_possible_truncation, reason = "only be used to cache")]
             source_size: metadata.len() as u32,
         })
     }

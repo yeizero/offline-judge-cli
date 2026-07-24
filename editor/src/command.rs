@@ -125,29 +125,29 @@ impl FromStr for Command {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
-            "inputenter" => Ok(Command::InputEnter),
-            "deleteleft" => Ok(Command::DeleteLeft),
-            "deleteright" => Ok(Command::DeleteRight),
-            "deletewordleft" => Ok(Command::DeleteWordLeft),
-            "deletewordright" => Ok(Command::DeleteWordRight),
-            "cursorup" => Ok(Command::CursorUp),
-            "cursordown" => Ok(Command::CursorDown),
-            "cursorleft" => Ok(Command::CursorLeft),
-            "cursorright" => Ok(Command::CursorRight),
-            "cursorwordleft" => Ok(Command::CursorWordLeft),
-            "cursorwordright" => Ok(Command::CursorWordRight),
-            "cursorhome" => Ok(Command::CursorHome),
-            "cursorend" => Ok(Command::CursorEnd),
-            "cursorpageup" => Ok(Command::CursorPageUp),
-            "cursorpagedown" => Ok(Command::CursorPageDown),
-            "selectall" => Ok(Command::SelectAll),
-            "selectline" => Ok(Command::SelectLine),
-            "textcopy" => Ok(Command::TextCopy),
-            "textcut" => Ok(Command::TextCut),
-            "textpaste" => Ok(Command::TextPaste),
-            "textcopyandclearselection" => Ok(Command::TextCopyAndClearSelection),
-            "exit" => Ok(Command::Exit),
-            _ => Err(format!("Unknown command: '{}'", s)),
+            "inputenter" => Ok(Self::InputEnter),
+            "deleteleft" => Ok(Self::DeleteLeft),
+            "deleteright" => Ok(Self::DeleteRight),
+            "deletewordleft" => Ok(Self::DeleteWordLeft),
+            "deletewordright" => Ok(Self::DeleteWordRight),
+            "cursorup" => Ok(Self::CursorUp),
+            "cursordown" => Ok(Self::CursorDown),
+            "cursorleft" => Ok(Self::CursorLeft),
+            "cursorright" => Ok(Self::CursorRight),
+            "cursorwordleft" => Ok(Self::CursorWordLeft),
+            "cursorwordright" => Ok(Self::CursorWordRight),
+            "cursorhome" => Ok(Self::CursorHome),
+            "cursorend" => Ok(Self::CursorEnd),
+            "cursorpageup" => Ok(Self::CursorPageUp),
+            "cursorpagedown" => Ok(Self::CursorPageDown),
+            "selectall" => Ok(Self::SelectAll),
+            "selectline" => Ok(Self::SelectLine),
+            "textcopy" => Ok(Self::TextCopy),
+            "textcut" => Ok(Self::TextCut),
+            "textpaste" => Ok(Self::TextPaste),
+            "textcopyandclearselection" => Ok(Self::TextCopyAndClearSelection),
+            "exit" => Ok(Self::Exit),
+            _ => Err(format!("Unknown command: '{s}'")),
         }
     }
 }
@@ -186,7 +186,7 @@ fn parse_input_event(s: &str) -> Result<InputEvent, String> {
             "" => {
                 return Err("Empty modifier found. Check for double '+' like 'ctrl++a'".to_string());
             }
-            _ => return Err(format!("Unknown modifier: '{}'", modifier)),
+            _ => return Err(format!("Unknown modifier: '{modifier}'")),
         }
     }
 
@@ -209,11 +209,13 @@ fn parse_input_event(s: &str) -> Result<InputEvent, String> {
             {
                 KeyCode::F(n)
             } else {
-                return Err(format!("Invalid F key: '{}'", key));
+                return Err(format!("Invalid F key: '{key}'"));
             }
         }
+        // never panic
+        #[allow(clippy::unwrap_used)]
         key if key.chars().count() == 1 => KeyCode::Char(key.chars().next().unwrap()),
-        _ => return Err(format!("Unknown key code: '{}'", key_part)),
+        _ => return Err(format!("Unknown key code: '{key_part}'")),
     };
 
     Ok(InputEvent { code, modifiers })
@@ -234,7 +236,7 @@ pub fn merge_keymap(
         let input_event = match parse_input_event(&input_str.to_ascii_lowercase()) {
             Ok(event) => event,
             Err(e) => {
-                eprintln!("Warning: Failed to parse keybind '{}': {}", input_str, e);
+                eprintln!("Warning: Failed to parse keybind '{input_str}': {e}");
                 continue;
             }
         };
@@ -243,8 +245,7 @@ pub fn merge_keymap(
             Ok(cmd) => cmd,
             Err(e) => {
                 eprintln!(
-                    "Warning: Failed to parse command for keybind '{}': {}",
-                    input_str, e
+                    "Warning: Failed to parse command for keybind '{input_str}': {e}"
                 );
                 continue;
             }

@@ -134,7 +134,7 @@ pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
                 truncate_output(&diff.answer, diff.first_diff_segment_index)
             );
         }
-    };
+    }
 
     if let Some(memory) = verdict.memory {
         println!();

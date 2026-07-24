@@ -1,16 +1,3 @@
-#![deny(clippy::all)]
-#![deny(clippy::if_then_some_else_none)]
-#![deny(clippy::empty_enum_variants_with_brackets)]
-#![deny(clippy::empty_structs_with_brackets)]
-#![deny(clippy::separated_literal_suffix)]
-#![deny(clippy::semicolon_outside_block)]
-#![deny(clippy::non_zero_suggestions)]
-#![deny(clippy::string_lit_chars_any)]
-#![deny(clippy::use_self)]
-#![deny(clippy::useless_let_if_seq)]
-#![deny(clippy::branches_sharing_code)]
-#![deny(clippy::equatable_if_let)]
-
 mod compile;
 mod config;
 mod judge;
@@ -68,7 +55,7 @@ async fn main() -> ExitCode {
     if info.do_judge {
         judge(info, runner).await;
     } else {
-        execute(runner);
+        execute(&runner);
     }
 
     ExitCode::SUCCESS
@@ -95,7 +82,7 @@ async fn compile_source_code(info: &TestInfo) -> Option<ShellCommand> {
                 match e {
                     CompileError::SE(msg) => println!("❌ [SE] {msg}"),
                     CompileError::CE(msg) => println!("❌ [CE] {msg}"),
-                };
+                }
                 None
             }
         };
@@ -134,7 +121,7 @@ async fn compile_source_code(info: &TestInfo) -> Option<ShellCommand> {
             match e {
                 CompileError::SE(msg) => println!("❌ [SE] {msg}"),
                 CompileError::CE(msg) => println!("❌ [CE] {msg}"),
-            };
+            }
             None
         }
     }
@@ -206,7 +193,7 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
                     let elapsed = round_start_time.elapsed();
                     if elapsed > Duration::from_millis(250) {
                         print!("執行中... {:.2}s\r", elapsed.as_secs_f64());
-                        std::io::stdout().flush().unwrap();
+                        let _ = std::io::stdout().flush();
                     }
                 }
             }
@@ -216,7 +203,7 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
     report.printstd();
 }
 
-fn execute(runner: ShellCommand) {
+fn execute(runner: &ShellCommand) {
     println!("⚙️ 正在運行程式");
     let _ = runner.build().status();
 }

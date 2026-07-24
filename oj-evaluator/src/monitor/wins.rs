@@ -59,6 +59,10 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
             .stderr(Stdio::piped())
             .spawn()?;
 
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a successfully spawned, unpolled child must have a process ID"
+        )]
         let pid = child.id().unwrap();
         assert_ne!(pid, 0);
 
@@ -70,15 +74,18 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
             },
             ..Default::default()
         })?;
-        job_object.assign_process(pid_to_process_handle(pid)?)?;
+        job_object.assign_process(&pid_to_process_handle(pid)?)?;
 
         resume_suspended_child_by_pid(pid)?;
 
         let start_time = Instant::now();
 
-        let mut stdin = child.stdin.take().expect("Failed to open stdin");
-        let mut stdout = child.stdout.take().expect("Failed to open stdout");
-        let mut stderr = child.stderr.take().expect("Failed to open stderr");
+        #[expect(clippy::unwrap_used)]
+        let mut stdin = child.stdin.take().unwrap();
+        #[expect(clippy::unwrap_used)]
+        let mut stdout = child.stdout.take().unwrap();
+        #[expect(clippy::unwrap_used)]
+        let mut stderr = child.stderr.take().unwrap();
 
         let mut stdout_data = Vec::new();
         let mut stderr_data = Vec::new();
@@ -92,7 +99,7 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
             let read_stdout_fut = stdout.read_to_end(&mut stdout_data);
             let read_stderr_fut = stderr.read_to_end(&mut stderr_data);
 
-            let (_, r_out, r_err) = tokio::join!(write_fut, read_stdout_fut, read_stderr_fut);
+            let ((), r_out, r_err) = tokio::join!(write_fut, read_stdout_fut, read_stderr_fut);
 
             r_out?;
             r_err?;
@@ -147,10 +154,14 @@ fn find_main_thread_id(pid: u32) -> WinResult<u32> {
     }
 
     let mut te32 = THREADENTRY32 {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "THREADENTRY32 is a fixed Windows structure smaller than u32::MAX"
+        )]
         dwSize: mem::size_of::<THREADENTRY32>() as u32,
         ..Default::default()
     };
-    let mut result = unsafe { Thread32First(*snapshot, &mut te32) };
+    let mut result = unsafe { Thread32First(*snapshot, &raw mut te32) };
     let mut thread_id = None;
 
     while result.is_ok() {
@@ -158,7 +169,7 @@ fn find_main_thread_id(pid: u32) -> WinResult<u32> {
             thread_id = Some(te32.th32ThreadID);
             break;
         }
-        result = unsafe { Thread32Next(*snapshot, &mut te32) };
+        result = unsafe { Thread32Next(*snapshot, &raw mut te32) };
     }
 
     thread_id.ok_or_else(|| WinError::new(E_FAIL, "Main thread not found for PID."))
@@ -169,7 +180,6 @@ struct JobObject {
 }
 
 unsafe impl Send for JobObject {}
-unsafe impl Sync for JobObject {}
 
 impl JobObject {
     pub fn create() -> WinResult<Self> {
@@ -183,44 +193,51 @@ impl JobObject {
         info: &JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     ) -> WinResult<()> {
         unsafe {
+            #[expect(clippy::cast_possible_truncation)]
             SetInformationJobObject(
                 *self.handle,
                 JobObjectExtendedLimitInformation,
-                info as *const _ as *const std::ffi::c_void,
+                std::ptr::from_ref(info).cast(),
                 mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             )
         }
     }
 
-    pub fn assign_process(&self, proc_handle: OwnedHandle) -> WinResult<()> {
-        unsafe { AssignProcessToJobObject(*self.handle, *proc_handle) }
+    pub fn assign_process(&self, proc_handle: &OwnedHandle) -> WinResult<()> {
+        unsafe { AssignProcessToJobObject(*self.handle, **proc_handle) }
     }
 
     pub fn get_cpu_time(&self) -> WinResult<Duration> {
         let mut accounting_info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         unsafe {
+            #[expect(clippy::cast_possible_truncation)]
             QueryInformationJobObject(
                 Some(*self.handle),
                 JobObjectBasicAccountingInformation,
-                &mut accounting_info as *mut _ as *mut std::ffi::c_void,
+                std::ptr::from_mut(&mut accounting_info).cast(),
                 std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
                 None,
-            )?
+            )?;
         };
         let total_100ns = accounting_info.TotalUserTime + accounting_info.TotalKernelTime;
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "Windows job CPU accounting times are non-negative"
+        )]
         Ok(Duration::from_nanos(total_100ns as u64 * 100))
     }
 
     pub fn get_max_memory_usage_kb(&self) -> WinResult<usize> {
         let mut accounting_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         unsafe {
+            #[expect(clippy::cast_possible_truncation)]
             QueryInformationJobObject(
                 Some(*self.handle),
                 JobObjectExtendedLimitInformation,
-                &mut accounting_info as *mut _ as *mut std::ffi::c_void,
+                std::ptr::from_mut(&mut accounting_info).cast(),
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
                 None,
-            )?
+            )?;
         };
         Ok(accounting_info.PeakJobMemoryUsed / 1024)
     }
@@ -242,6 +259,8 @@ fn pid_to_process_handle(pid: u32) -> WinResult<OwnedHandle> {
 
 #[repr(transparent)]
 struct OwnedHandle(HANDLE);
+
+unsafe impl Send for OwnedHandle {}
 
 impl Deref for OwnedHandle {
     type Target = HANDLE;

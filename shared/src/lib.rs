@@ -1,3 +1,4 @@
+#![allow(clippy::missing_errors_doc)]
 use std::io;
 use std::path::Path;
 use std::process::Command;
@@ -15,7 +16,7 @@ pub fn get_exe_dir() -> io::Result<PathBuf> {
         let exe_path = env::current_exe()?;
         let exe_dir = exe_path
             .parent()
-            .ok_or(io::Error::other("Failed to get exe directory"))?;
+            .ok_or_else(|| io::Error::other("Failed to get exe directory"))?;
         Ok(exe_dir.to_path_buf())
     }
 }
@@ -55,20 +56,24 @@ impl ShellCommand {
         Ok(Self { program, args })
     }
 
+    #[must_use]
     pub fn build(&self) -> Command {
         let mut cmd = Command::new(&self.program);
         cmd.args(&self.args);
         cmd
     }
 
+    #[must_use]
     pub fn build_tokio(&self) -> tokio::process::Command {
         self.build().into()
     }
 
+    #[must_use]
     pub fn program(&self) -> &str {
         &self.program
     }
 
+    #[must_use]
     pub fn args(&self) -> &[String] {
         &self.args
     }
@@ -119,7 +124,7 @@ impl ShellCommand {
             .collect();
 
         let mut argc = 0;
-        let argv_ptr = unsafe { CommandLineToArgvW(wide_chars.as_ptr(), &mut argc) };
+        let argv_ptr = unsafe { CommandLineToArgvW(wide_chars.as_ptr(), &raw mut argc) };
         if argv_ptr.is_null() {
             return Err(io::Error::last_os_error());
         }
@@ -132,8 +137,16 @@ impl ShellCommand {
         }
         let _guard = ArgvGuard(argv_ptr as HLOCAL);
 
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "CommandLineToArgvW returns a non-negative argument count on success"
+        )]
         let argv_slice = unsafe { std::slice::from_raw_parts(argv_ptr, argc as usize) };
 
+        #[expect(
+            clippy::maybe_infinite_iter,
+            reason = "CommandLineToArgvW returns NUL-terminated strings"
+        )]
         argv_slice
             .iter()
             .map(|&arg_ptr| unsafe {
@@ -144,7 +157,7 @@ impl ShellCommand {
             .map_err(|os_string| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Invalid UTF-16 in command line argument: {}", os_string),
+                    format!("Invalid UTF-16 in command line argument: {os_string}"),
                 )
             })
     }

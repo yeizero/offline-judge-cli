@@ -1,7 +1,7 @@
 use crate::judge::verdict::Limitation;
 use async_trait::async_trait;
 use shared::ShellCommand;
-use std::{process::ExitStatus, time::Duration};
+use std::{ops::Div, process::ExitStatus, time::Duration};
 use tokio::time::timeout;
 
 #[async_trait]
@@ -25,7 +25,7 @@ pub struct MonitorOutput {
 }
 
 pub enum TimingStatus<T> {
-    /// InTime means the program didn't abort, but it might still TLE.
+    /// `InTime` means the program didn't abort, but it might still TLE.
     InTime(T),
     Aborted(Duration),
 }
@@ -49,17 +49,14 @@ pub async fn timeout_with_limit<F>(limit: &Limitation, future: F) -> TimingStatu
 where
     F: IntoFuture,
 {
-    match limit.max_time {
-        Some(duration) => {
-            let abort_duartion = Duration::from_millis(duration.as_millis() as u64 * 3 / 2);
-            match timeout(abort_duartion, future.into_future()).await {
-                Ok(result) => TimingStatus::InTime(result),
-                Err(_) => TimingStatus::Aborted(abort_duartion),
-            }
+    if let Some(duration) = limit.max_time {
+        let abort_duartion = duration.div(2).saturating_mul(3);
+        match timeout(abort_duartion, future.into_future()).await {
+            Ok(result) => TimingStatus::InTime(result),
+            Err(_) => TimingStatus::Aborted(abort_duartion),
         }
-        None => {
-            let result = future.into_future().await;
-            TimingStatus::InTime(result)
-        }
+    } else {
+        let result = future.into_future().await;
+        TimingStatus::InTime(result)
     }
 }

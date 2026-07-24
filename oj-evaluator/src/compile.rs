@@ -44,12 +44,12 @@ async fn pipe_stream<R, W>(
                     let _ = tx.send(());
                 }
                 if let Err(e) = parent_stream.write_all(&buf[..bytes_read]).await {
-                    log::debug!("Failed to write to parent stream: {}", e);
+                    log::debug!("Failed to write to parent stream: {e}");
                     break;
                 }
             }
             Err(e) => {
-                log::warn!("Error reading from child stream: {}", e);
+                log::warn!("Error reading from child stream: {e}");
                 break;
             }
         }
@@ -64,7 +64,9 @@ async fn run_command_with_onetime_callback(
     let (tx_err, rx_err) = oneshot::channel::<()>();
 
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    #[expect(clippy::unwrap_used)]
     let stdout = child.stdout.take().unwrap();
+    #[expect(clippy::unwrap_used)]
     let stderr = child.stderr.take().unwrap();
 
     let mut io_tasks = JoinSet::new();
@@ -73,15 +75,15 @@ async fn run_command_with_onetime_callback(
 
     tokio::select! {
         biased;
-        Ok(_) = rx_out => { on_first_output(); },
-        Ok(_) = rx_err => { on_first_output(); },
+        Ok(()) = rx_out => { on_first_output(); },
+        Ok(()) = rx_err => { on_first_output(); },
         _ = child.wait() => {},
     }
 
     let status = child.wait().await?;
     while let Some(res) = io_tasks.join_next().await {
         if let Err(e) = res {
-            log::warn!("I/O task panicked: {:?}", e);
+            log::warn!("I/O task panicked: {e:?}");
         }
     }
     Ok(status)
@@ -142,7 +144,7 @@ pub async fn prepare_command<'a>(
                         .to_string_lossy()
                         .into_owned();
                     CompileError::SE(
-                        format!("Error executing '{}' for compilation: {e}", program_name).into(),
+                        format!("Error executing '{program_name}' for compilation: {e}").into(),
                     )
                 })?;
 

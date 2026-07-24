@@ -32,7 +32,7 @@ fn resolve_inquire_error<T>(result: InquireResult<T>) -> Option<T> {
             None
         }
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{e}");
             None
         }
     }

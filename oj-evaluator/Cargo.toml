@@ -3,6 +3,9 @@ name = "oj-evaluator"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 shared = { path = "../shared" }
 tokio = { version = "1.47.1", features = ["io-std", "io-util", "macros", "process", "rt-multi-thread", "time", "sync"] }

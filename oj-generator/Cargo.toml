@@ -3,6 +3,9 @@ name = "oj-generator"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 shared = { path = "../shared" }
 clap = { version = "4.5.32", features = ["derive"] }

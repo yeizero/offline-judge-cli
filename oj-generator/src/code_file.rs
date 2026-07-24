@@ -1,13 +1,14 @@
-use std::{fmt, path::PathBuf};
 use fs_err::File;
 use inquire::{Select, error::InquireResult};
 use owo_colors::OwoColorize;
+use std::{fmt, path::PathBuf};
 
 use crate::{
     configure::GeneratorConfig,
     helper::{FileStatus, test_create_file},
 };
 
+#[expect(clippy::needless_pass_by_value, reason = "caller doesn't need ownership")]
 pub fn generate_code_file(
     judge_config_path: String,
     config: &GeneratorConfig,
@@ -60,9 +61,9 @@ pub enum CodeOption {
 impl fmt::Display for CodeOption {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CodeOption::Cancel => write!(f, "取消"),
-            CodeOption::File { file_name, .. } => {
-                write!(f, "{}", file_name)
+            Self::Cancel => write!(f, "取消"),
+            Self::File { file_name, .. } => {
+                write!(f, "{file_name}")
             }
         }
     }

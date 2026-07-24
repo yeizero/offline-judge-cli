@@ -3,6 +3,9 @@ name = "editor"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 shared = { path = "../shared" }
 anyhow.workspace = true

@@ -10,9 +10,8 @@ pub fn read_test_cases(path: TestCasePath) -> Result<TestCaseSet, ReaderError> {
         TestCasePath::Specified(p) => p,
         TestCasePath::NoExtension(p) => resolve_yaml_path(p)?,
     };
-    let raw_str = match fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(_) => return Err(ReaderError::FileNotFound(path.into_string())),
+    let Ok(raw_str) = fs::read_to_string(&path) else {
+        return Err(ReaderError::FileNotFound(path.into_string()));
     };
 
     let raw: RawTestCases =
@@ -67,7 +66,7 @@ fn load_cases_from_folder(folder: Utf8PathBuf) -> Result<Vec<TestCase>, ReaderEr
         };
 
         let stem = stem.to_string_lossy();
-        let output_path = path.with_file_name(format!("{}.out", stem));
+        let output_path = path.with_file_name(format!("{stem}.out"));
 
         if !output_path.exists() {
             log::debug!(
@@ -84,7 +83,7 @@ fn load_cases_from_folder(folder: Utf8PathBuf) -> Result<Vec<TestCase>, ReaderEr
             ReaderError::General(format!("Failed to read {}: {}", output_path.display(), e))
         })?;
 
-        log::info!("Loaded test case: {}", stem);
+        log::info!("Loaded test case: {stem}");
 
         named_cases.push((stem.into_owned(), TestCase { input, answer }));
     }
@@ -94,20 +93,18 @@ fn load_cases_from_folder(folder: Utf8PathBuf) -> Result<Vec<TestCase>, ReaderEr
     Ok(named_cases.into_iter().map(|(_, case)| case).collect())
 }
 
-fn resolve_yaml_path<T: AsRef<Utf8Path>>(base_path: T) -> Result<Utf8PathBuf, ReaderError> {
+fn resolve_yaml_path<T: AsRef<Utf8Path>>(
+    base_path: T,
+) -> Result<Utf8PathBuf, ReaderError> {
     let base = base_path.as_ref();
     let yml_path = base.with_extension("yml");
     let yaml_path = base.with_extension("yaml");
 
-    let yml_exists = yml_path.exists();
-    let yaml_exists = yaml_path.exists();
-
-    match (yml_exists, yaml_exists) {
+    match (yml_path.exists(), yaml_path.exists()) {
         (true, false) => Ok(yml_path),
         (false, true) => Ok(yaml_path),
         (true, true) => Err(ReaderError::FileNotFound(format!(
-            "配置檔衝突：同時存在 {} 和 {}",
-            yml_path, yaml_path
+            "配置檔衝突：同時存在 {yml_path} 和 {yaml_path}"
         ))),
         (false, false) => Err(ReaderError::NoConfigFile(yaml_path.into_string())),
     }
@@ -157,7 +154,7 @@ where
 {
     struct StringOrNumberVisitor;
 
-    impl<'de> Visitor<'de> for StringOrNumberVisitor {
+    impl Visitor<'_> for StringOrNumberVisitor {
         type Value = String;
 
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {

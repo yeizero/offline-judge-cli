@@ -1,12 +1,7 @@
 use fs_err::File;
 use shared::bridge::write_keymap_to_file;
 use std::{
-    env,
-    ffi::OsStr,
-    fmt,
-    io::Write,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    env, ffi::OsStr, fmt, io::{self, Write}, path::PathBuf, time::{SystemTime, UNIX_EPOCH},
 };
 
 use inquire::{
@@ -42,18 +37,18 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
     loop {
         let action = Select::new(
             "動作:",
-            Action::LIST[0..Action::LIST.len() - (suite.cases.is_empty()) as usize].to_vec(),
+            Action::LIST[0..Action::LIST.len() - usize::from(suite.cases.is_empty())].to_vec(),
         )
         .prompt()?;
 
         match action {
             Action::Add => {
                 let input = escapable!(
-                    input_text_or_editor(config, &format!("測資 {} 輸入:", id)),
+                    input_text_or_editor(config, &format!("測資 {id} 輸入:")),
                     continue
                 )?;
                 let answer = escapable!(
-                    input_text_or_editor(config, &format!("測資 {} 答案:", id)),
+                    input_text_or_editor(config, &format!("測資 {id} 答案:")),
                     continue
                 )?;
 
@@ -70,10 +65,10 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
                         LabelWithOptionIndex::new(
                             Some(index),
                             if case.id == 0 {
-                                format!("外來測資 ({}字)", count)
+                                format!("外來測資 ({count}字)")
                             } else {
                                 format!("測資 {} ({}字)", case.id, count)
-                            }
+                            },
                         )
                     })
                     .collect();
@@ -88,7 +83,7 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
                 )?;
                 if let Some(index) = selection.index {
                     suite.cases.remove(index);
-                };
+                }
             }
             Action::LimitTime => {
                 let mut limit = suite.limit.unwrap_or_default();
@@ -133,11 +128,12 @@ pub fn generate_test_case(config: &GeneratorConfig) -> InquireResult<String> {
     suite.meta.retain(|_, value| !value.is_null());
 
     let mut file = File::create(&file_path)?;
+    #[expect(clippy::unwrap_used)]
     let yaml = serde_yaml_ng::to_string(&suite).unwrap();
 
     file.write_all(yaml.as_bytes())?;
 
-    println!("{}", format_args!("成功創建 '{}'", &file_path).green());
+    println!("{}", format_args!("成功創建 '{file_path}'").green());
 
     Ok(file_path)
 }
@@ -153,7 +149,7 @@ enum Action {
 }
 
 impl Action {
-    const LIST: &'static [Action] = &[
+    const LIST: &'static [Self] = &[
         Self::Add,
         Self::Delete,
         Self::LimitTime,
@@ -184,11 +180,16 @@ fn with_yaml_path_validator(
 
 fn with_yaml(input: &str) -> String {
     if input.trim().is_empty() {
-        "".to_string()
-    } else if input.ends_with(".yaml") || input.ends_with(".yml") {
+        String::new()
+    } else if std::path::Path::new(input)
+        .extension()
+        .is_some_and(|ext| {
+            ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml")
+        })
+    {
         input.to_string()
     } else {
-        format!("{}.yaml", input)
+        format!("{input}.yaml")
     }
 }
 
@@ -198,7 +199,7 @@ fn input_text_or_editor(config: &GeneratorConfig, message: &str) -> Result<Strin
         .with_help_message(ESCAPABLE)
         .with_formatter(&|i| {
             if i == OPEN_EDITOR_MAGIC {
-                format!("<{}>", i)
+                format!("<{i}>")
             } else {
                 i.to_string()
             }
@@ -211,7 +212,10 @@ fn input_text_or_editor(config: &GeneratorConfig, message: &str) -> Result<Strin
 
         match &config.editor {
             EditorChoice::Local(editor_config) => {
-                editor_path = env::current_exe()?.parent().unwrap().join("editor");
+                editor_path = env::current_exe()?
+                    .parent()
+                    .ok_or_else(|| io::Error::other("executable path has no parent directory"))?
+                    .join("editor");
                 editor = editor.with_editor_command(editor_path.as_os_str());
 
                 if let Some(keymap) = &editor_config.keymap {
@@ -220,14 +224,14 @@ fn input_text_or_editor(config: &GeneratorConfig, message: &str) -> Result<Strin
                         "OJC-E-{}",
                         SystemTime::now()
                             .duration_since(UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_nanos()
                     );
                     path.push(filename);
 
                     unsafe {
                         write_keymap_to_file(&path, keymap)
-                            .map_err(|e| InquireError::Custom(e.into_boxed_dyn_error()))?
+                            .map_err(|e| InquireError::Custom(e.into_boxed_dyn_error()))?;
                     };
 
                     config_path = Some(path);
@@ -236,7 +240,7 @@ fn input_text_or_editor(config: &GeneratorConfig, message: &str) -> Result<Strin
             EditorChoice::Other(command) => {
                 editor = editor.with_editor_command(OsStr::new(command));
             }
-        };
+        }
 
         #[allow(clippy::manual_map)]
         // ownership problem (cannot return reference to temporary value)
@@ -253,5 +257,18 @@ fn input_text_or_editor(config: &GeneratorConfig, message: &str) -> Result<Strin
         editor.prompt()
     } else {
         Ok(input)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::with_yaml;
+
+    #[test]
+    fn with_yaml_preserves_yaml_extensions_case_insensitively() {
+        assert_eq!(with_yaml("problem.yaml"), "problem.yaml");
+        assert_eq!(with_yaml("problem.yml"), "problem.yml");
+        assert_eq!(with_yaml("problem.YAML"), "problem.YAML");
+        assert_eq!(with_yaml("problem.YML"), "problem.YML");
     }
 }
