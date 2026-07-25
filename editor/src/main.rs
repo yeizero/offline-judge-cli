@@ -1,6 +1,6 @@
+mod algorithms;
 mod command;
 mod editor;
-mod algorithms;
 
 use std::io::{self, BufReader, BufWriter};
 
@@ -16,7 +16,7 @@ struct Args {
     #[argh(positional)]
     file: Option<String>,
 
-    #[argh(option, arg_name="input-fast")]
+    #[argh(option, arg_name = "input-fast")]
     input_fast: Option<String>,
 }
 

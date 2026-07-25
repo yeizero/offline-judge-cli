@@ -26,11 +26,8 @@ fn build_command_from_template(
     ShellCommand::parse_str(&final_command_str)
 }
 
-async fn pipe_stream<R, W>(
-    mut stream: R,
-    mut parent_stream: W,
-    mut tx: Option<oneshot::Sender<()>>,
-) where
+async fn pipe_stream<R, W>(mut stream: R, mut parent_stream: W, mut tx: Option<oneshot::Sender<()>>)
+where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {

@@ -4,14 +4,20 @@ use std::time::Duration;
 
 use owo_colors::OwoColorize;
 
-use crate::judge::comparison::StyledDiff;
+use crate::judge::comparison::WrongAnswer;
 use crate::utils::PrettyNumber;
 use std::cmp::max;
 
+#[expect(
+    clippy::struct_field_names,
+    reason = "the public Limitation API intentionally uses max_* names for all limits"
+)]
 #[derive(Debug, Clone, Copy)]
 pub struct Limitation {
     pub max_memory: Option<usize>,
     pub max_time: Option<Duration>,
+    pub max_stdout: usize,
+    pub max_stderr: usize,
 }
 
 impl Limitation {
@@ -23,6 +29,14 @@ impl Limitation {
         self.max_time = max_time;
         self
     }
+    pub const fn max_stdout(&mut self, max_stdout: usize) -> &mut Self {
+        self.max_stdout = max_stdout;
+        self
+    }
+    pub const fn max_stderr(&mut self, max_stderr: usize) -> &mut Self {
+        self.max_stderr = max_stderr;
+        self
+    }
 }
 
 impl Default for Limitation {
@@ -30,13 +44,15 @@ impl Default for Limitation {
         Self {
             max_memory: Some(1024 * 1024),
             max_time: Some(Duration::from_secs(2)),
+            max_stdout: 16 * 1024 * 1024,
+            max_stderr: 16 * 1024 * 1024,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct JudgeVerdict<'a> {
-    pub status: JudgeStatus,
+    pub status: JudgeStatus<'a>,
     pub input: &'a str,
     pub duration: Option<Duration>,
     pub memory: Option<usize>,
@@ -54,7 +70,7 @@ impl<'a> JudgeVerdict<'a> {
     pub const fn is_accept(&self) -> bool {
         self.status.is_accept()
     }
-    pub(super) fn status(&mut self, status: JudgeStatus) {
+    pub(super) fn status(&mut self, status: JudgeStatus<'a>) {
         self.status = status;
     }
     pub(super) const fn duration(&mut self, duration: Option<Duration>) {
@@ -66,7 +82,7 @@ impl<'a> JudgeVerdict<'a> {
 }
 
 #[derive(Debug)]
-pub enum JudgeStatus {
+pub enum JudgeStatus<'case> {
     /// Accept
     AC,
     /// Runtime Error
@@ -74,53 +90,22 @@ pub enum JudgeStatus {
     /// System Error
     SE(anyhow::Error),
     /// Wrong Answer
-    WA(StyledDiff),
+    WA(WrongAnswer<'case>),
+    /// Output Limit Exceeded
+    Ole(usize),
     /// Time Limit Exceeded
     Tle(TleType),
     /// Memory Limit Exceeded
     Mle(usize),
 }
 
-impl JudgeStatus {
+impl JudgeStatus<'_> {
     pub const fn is_accept(&self) -> bool {
         matches!(self, Self::AC)
     }
 
     pub const fn to_str_short(&self) -> &str {
-        match self {
-            Self::RE(_) => "運行時錯誤 RE",
-            Self::SE(_) => "系統錯誤 RE",
-            Self::WA(_) => "答案錯誤 WA",
-            Self::Tle(_) => "超時錯誤 TLE",
-            Self::Mle(_) => "記憶體超限 MLE",
-            Self::AC => "答案正確 AC",
-        }
-    }
-
-    pub(crate) const fn severity(&self) -> u8 {
-        match self {
-            Self::SE(_) => 5,
-            Self::RE(_) => 4,
-            Self::WA(_) => 3,
-            Self::Tle(_) => 2,
-            Self::Mle(_) => 1,
-            Self::AC => 0,
-        }
-    }
-
-    pub(crate) fn is_severe_than(&self, other: &Self) -> bool {
-        let severity_self = self.severity();
-        let severity_other = other.severity();
-
-        if severity_self != severity_other {
-            return severity_self > severity_other;
-        }
-
-        match (self, other) {
-            (Self::Tle(self_time), Self::Tle(other_time)) => self_time > other_time,
-            (Self::Mle(self_mem), Self::Mle(other_mem)) => self_mem > other_mem,
-            _ => false,
-        }
+        SummaryStatus::from_status(self).to_str_short()
     }
 }
 
@@ -163,7 +148,68 @@ pub struct SummaryInfo {
     pub current_rounds: usize,
     pub max_time: Duration,
     pub max_memory: usize,
-    worse_status: JudgeStatus,
+    worst_status: SummaryStatus,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SummaryStatus {
+    AC,
+    RE,
+    SE,
+    WA,
+    Ole(usize),
+    Tle(TleType),
+    Mle(usize),
+}
+
+impl SummaryStatus {
+    const fn from_status(status: &JudgeStatus<'_>) -> Self {
+        match status {
+            JudgeStatus::AC => Self::AC,
+            JudgeStatus::RE(_) => Self::RE,
+            JudgeStatus::SE(_) => Self::SE,
+            JudgeStatus::WA(_) => Self::WA,
+            JudgeStatus::Ole(limit) => Self::Ole(*limit),
+            JudgeStatus::Tle(time) => Self::Tle(*time),
+            JudgeStatus::Mle(memory) => Self::Mle(*memory),
+        }
+    }
+
+    const fn to_str_short(self) -> &'static str {
+        match self {
+            Self::RE => "運行時錯誤 RE",
+            Self::SE => "系統錯誤 SE",
+            Self::WA => "答案錯誤 WA",
+            Self::Ole(_) => "輸出超限 OLE",
+            Self::Tle(_) => "超時錯誤 TLE",
+            Self::Mle(_) => "記憶體超限 MLE",
+            Self::AC => "答案正確 AC",
+        }
+    }
+
+    const fn severity(self) -> u8 {
+        match self {
+            Self::SE => 6,
+            Self::RE => 5,
+            Self::WA => 4,
+            Self::Ole(_) => 3,
+            Self::Tle(_) => 2,
+            Self::Mle(_) => 1,
+            Self::AC => 0,
+        }
+    }
+
+    fn is_severe_than(self, other: Self) -> bool {
+        if self.severity() != other.severity() {
+            return self.severity() > other.severity();
+        }
+
+        match (self, other) {
+            (Self::Tle(self_time), Self::Tle(other_time)) => self_time > other_time,
+            (Self::Mle(self_mem), Self::Mle(other_mem)) => self_mem > other_mem,
+            _ => false,
+        }
+    }
 }
 
 impl Default for SummaryInfo {
@@ -173,20 +219,23 @@ impl Default for SummaryInfo {
             current_rounds: 0,
             max_time: Duration::ZERO,
             max_memory: 0,
-            worse_status: JudgeStatus::AC,
+            worst_status: SummaryStatus::AC,
         }
     }
 }
 
 impl SummaryInfo {
-    pub fn update(&mut self, verdict: JudgeVerdict) {
+    pub fn update(&mut self, verdict: &JudgeVerdict<'_>) {
         self.current_rounds += 1;
         self.max_time = max(self.max_time, verdict.duration.unwrap_or(Duration::ZERO));
         self.max_memory = max(self.max_memory, verdict.memory.unwrap_or(0));
         if verdict.is_accept() {
             self.success_rounds += 1;
-        } else if verdict.status.is_severe_than(&self.worse_status) {
-            self.worse_status = verdict.status;
+        } else {
+            let status = SummaryStatus::from_status(&verdict.status);
+            if status.is_severe_than(self.worst_status) {
+                self.worst_status = status;
+            }
         }
     }
     pub const fn score(&self) -> usize {
@@ -196,8 +245,8 @@ impl SummaryInfo {
 
 impl fmt::Display for SummaryInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.worse_status {
-            status @ JudgeStatus::WA(_) => {
+        match &self.worst_status {
+            status @ SummaryStatus::WA => {
                 write!(
                     f,
                     "{} (score: {}%)",
@@ -209,14 +258,22 @@ impl fmt::Display for SummaryInfo {
                     self.score()
                 )
             }
-            status @ JudgeStatus::Tle(time) => write!(f, "{} ({})", status.to_str_short(), time),
-            status @ JudgeStatus::Mle(memory) => {
+            status @ SummaryStatus::Tle(time) => write!(f, "{} ({})", status.to_str_short(), time),
+            status @ SummaryStatus::Mle(memory) => {
                 write!(f, "{} ({} KiB)", status.to_str_short(), memory.prettify())
             }
-            JudgeStatus::AC => write!(
+            status @ SummaryStatus::Ole(limit) => {
+                write!(
+                    f,
+                    "{} (limit: {} bytes)",
+                    status.to_str_short(),
+                    limit.prettify()
+                )
+            }
+            SummaryStatus::AC => write!(
                 f,
                 "{} ({} ms, {} KiB)",
-                JudgeStatus::AC.to_str_short().bright_green(),
+                SummaryStatus::AC.to_str_short().bright_green(),
                 self.max_time.as_millis(),
                 self.max_memory
             ),

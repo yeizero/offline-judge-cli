@@ -7,9 +7,9 @@ use test_cases::generate_test_case;
 mod advanced;
 mod code_file;
 mod configure;
+mod helper;
 mod structs;
 mod test_cases;
-mod helper;
 
 fn main() {
     let config_result = read_config();

@@ -11,5 +11,6 @@ pub fn init_logger(level: LevelFilter) {
         builder.build(),
         TerminalMode::Stderr,
         ColorChoice::Auto,
-    ).unwrap();
+    )
+    .unwrap();
 }

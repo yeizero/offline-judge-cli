@@ -8,6 +8,9 @@ evaluator:
   # {output} : 編譯後輸出的執行檔路徑。
   # {source_stem} : 來源檔案的名稱，不含副檔名
   # {output_folder} : 編譯後輸出的執行檔資料夾的路徑。
+  # stdout 超過此限制時回報 OLE；stderr 超過時截斷。單位：MiB
+  stdout_limit: 16
+  stderr_limit: 16
   languages:
     - extension: cpp
       compile:

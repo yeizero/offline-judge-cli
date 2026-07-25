@@ -49,6 +49,8 @@ pub struct Args {
 }
 
 pub fn resolve_args(args: Args, config: EvaluatorConfig) -> Result<TestInfo, ReaderError> {
+    let max_stdout = config.stdout_limit_bytes()?;
+    let max_stderr = config.stderr_limit_bytes()?;
     let mut path = Utf8PathBuf::from(args.file);
 
     let final_ext: &str = match &args.lang {
@@ -106,6 +108,8 @@ pub fn resolve_args(args: Args, config: EvaluatorConfig) -> Result<TestInfo, Rea
             cases: Vec::new(),
             max_memory: None,
             max_time: None,
+            max_stdout,
+            max_stderr,
             do_judge: false,
             warmup_times: None,
             force_compile: args.force,
@@ -127,6 +131,8 @@ pub fn resolve_args(args: Args, config: EvaluatorConfig) -> Result<TestInfo, Rea
             cases: case_set.cases,
             max_memory: args.memory.or(case_limit.memory),
             max_time: args.time.or(case_limit.time).map(Duration::from_millis),
+            max_stdout,
+            max_stderr,
             do_judge: true,
             warmup_times: args.warmup.or(config.warmup),
             force_compile: args.force,
@@ -141,6 +147,8 @@ pub struct TestInfo {
     pub cases: Vec<TestCase>,
     pub max_memory: Option<usize>,
     pub max_time: Option<Duration>,
+    pub max_stdout: usize,
+    pub max_stderr: usize,
     pub do_judge: bool,
     pub warmup_times: Option<u32>,
     pub force_compile: bool,

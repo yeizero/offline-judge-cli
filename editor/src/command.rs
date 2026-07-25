@@ -244,9 +244,7 @@ pub fn merge_keymap(
         let command = match Command::from_str(&command_str) {
             Ok(cmd) => cmd,
             Err(e) => {
-                eprintln!(
-                    "Warning: Failed to parse command for keybind '{input_str}': {e}"
-                );
+                eprintln!("Warning: Failed to parse command for keybind '{input_str}': {e}");
                 continue;
             }
         };

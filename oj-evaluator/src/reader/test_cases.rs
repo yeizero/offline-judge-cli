@@ -93,9 +93,7 @@ fn load_cases_from_folder(folder: Utf8PathBuf) -> Result<Vec<TestCase>, ReaderEr
     Ok(named_cases.into_iter().map(|(_, case)| case).collect())
 }
 
-fn resolve_yaml_path<T: AsRef<Utf8Path>>(
-    base_path: T,
-) -> Result<Utf8PathBuf, ReaderError> {
+fn resolve_yaml_path<T: AsRef<Utf8Path>>(base_path: T) -> Result<Utf8PathBuf, ReaderError> {
     let base = base_path.as_ref();
     let yml_path = base.with_extension("yml");
     let yaml_path = base.with_extension("yaml");

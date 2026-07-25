@@ -4,7 +4,6 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use windows::Win32::Foundation::{CloseHandle, E_FAIL, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
@@ -24,7 +23,9 @@ use windows::core::{Error as WinError, PCWSTR, Result as WinResult};
 
 use crate::{
     judge::verdict::Limitation,
-    monitor::common::{JudgeMonitor, MonitorOutput, TimingStatus, timeout_with_limit},
+    monitor::common::{
+        JudgeMonitor, MonitorOutput, TimingStatus, collect_child_output, timeout_with_limit,
+    },
 };
 use shared::ShellCommand;
 
@@ -80,39 +81,11 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
 
         let start_time = Instant::now();
 
-        #[expect(clippy::unwrap_used)]
-        let mut stdin = child.stdin.take().unwrap();
-        #[expect(clippy::unwrap_used)]
-        let mut stdout = child.stdout.take().unwrap();
-        #[expect(clippy::unwrap_used)]
-        let mut stderr = child.stderr.take().unwrap();
-
-        let mut stdout_data = Vec::new();
-        let mut stderr_data = Vec::new();
-
-        let output_status = timeout_with_limit(self.limit, async {
-            let write_fut = async {
-                let _ = stdin.write_all(self.input.as_bytes()).await;
-                let _ = stdin.flush().await;
-                drop(stdin);
-            };
-            let read_stdout_fut = stdout.read_to_end(&mut stdout_data);
-            let read_stderr_fut = stderr.read_to_end(&mut stderr_data);
-
-            let ((), r_out, r_err) = tokio::join!(write_fut, read_stdout_fut, read_stderr_fut);
-
-            r_out?;
-            r_err?;
-            let status = child.wait().await?;
-
-            Ok::<_, std::io::Error>(std::process::Output {
-                status,
-                stdout: stdout_data,
-                stderr: stderr_data,
-            })
-        })
+        let output_status = timeout_with_limit(
+            self.limit,
+            collect_child_output(&mut child, self.input, self.limit),
+        )
         .await;
-
         let duration = job_object.get_cpu_time().unwrap_or_else(|e| {
             log::debug!("Fallback to wall clock: {e}");
             start_time.elapsed()
@@ -130,6 +103,8 @@ impl<'a> JudgeMonitor<'a> for WindowsMonitor<'a> {
                 status: output.status,
                 stderr: output.stderr,
                 stdout: output.stdout,
+                stdout_exceeded: output.stdout_exceeded,
+                stderr_exceeded: output.stderr_exceeded,
             })
         })
     }
@@ -277,5 +252,43 @@ impl Drop for OwnedHandle {
                 let _ = CloseHandle(self.0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod tests {
+    use super::WindowsMonitor;
+    use crate::{
+        judge::verdict::Limitation,
+        monitor::common::{JudgeMonitor, TimingStatus},
+    };
+    use shared::ShellCommand;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn inherited_open_pipe_cannot_turn_stdout_overflow_into_timeout() {
+        let runner = ShellCommand::parse_str(
+            r#"powershell.exe -NoProfile -Command "Start-Process powershell.exe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 30' -NoNewWindow; [Console]::Out.Write('12345'); [Console]::Out.Flush(); Start-Sleep -Milliseconds 100""#,
+        )
+        .unwrap();
+        let limit = Limitation {
+            max_memory: None,
+            max_time: Some(Duration::from_secs(1)),
+            max_stdout: 4,
+            max_stderr: 1024,
+        };
+        let mut monitor = WindowsMonitor::load(&runner, "", &limit).await.unwrap();
+
+        let result = tokio::time::timeout(Duration::from_secs(4), monitor.execute())
+            .await
+            .expect("monitor must not wait for the inherited pipe handle")
+            .unwrap();
+
+        let TimingStatus::InTime(output) = result else {
+            panic!("stdout overflow must stay OLE rather than becoming TLE");
+        };
+        assert!(output.stdout_exceeded);
+        assert!(output.status.is_none());
     }
 }

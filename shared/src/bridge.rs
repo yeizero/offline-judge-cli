@@ -70,7 +70,10 @@ pub unsafe fn read_keymap_from_file(path: &str) -> anyhow::Result<Vec<FastKeyMap
 
 /// # Safety
 /// 無法保證檔案突然失效、無法寫入
-pub unsafe fn write_keymap_to_file(path: impl Into<PathBuf>, keymap: &KeyMapListProtocal) -> anyhow::Result<()> {
+pub unsafe fn write_keymap_to_file(
+    path: impl Into<PathBuf>,
+    keymap: &KeyMapListProtocal,
+) -> anyhow::Result<()> {
     let bytes = musli::packed::to_vec(&keymap.0)?;
 
     let file = OpenOptions::new()

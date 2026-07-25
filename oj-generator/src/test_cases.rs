@@ -1,7 +1,12 @@
 use fs_err::File;
 use shared::bridge::write_keymap_to_file;
 use std::{
-    env, ffi::OsStr, fmt, io::{self, Write}, path::PathBuf, time::{SystemTime, UNIX_EPOCH},
+    env,
+    ffi::OsStr,
+    fmt,
+    io::{self, Write},
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use inquire::{
@@ -183,9 +188,7 @@ fn with_yaml(input: &str) -> String {
         String::new()
     } else if std::path::Path::new(input)
         .extension()
-        .is_some_and(|ext| {
-            ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml")
-        })
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml"))
     {
         input.to_string()
     } else {

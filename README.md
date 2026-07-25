@@ -222,6 +222,10 @@ evaluator:
         command: "java -cp {output_folder} {source_stem}"
   # 全域預設的預熱次數
   warmup: 1
+  # 單一測資允許的標準輸出上限，單位為 MiB (預設16MiB)；超過時終止程式並回報 OLE。
+  stdout_limit: 16
+  # 單一測資保留的標準錯誤上限，單位為 MiB (預設16MiB)；超過時繼續排空但截斷顯示。
+  stderr_limit: 16
 ```
 
 **可用變數**:

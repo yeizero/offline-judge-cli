@@ -8,7 +8,10 @@ use crate::{
     helper::{FileStatus, test_create_file},
 };
 
-#[expect(clippy::needless_pass_by_value, reason = "caller doesn't need ownership")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "caller doesn't need ownership"
+)]
 pub fn generate_code_file(
     judge_config_path: String,
     config: &GeneratorConfig,

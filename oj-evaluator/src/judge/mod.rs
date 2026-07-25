@@ -1,6 +1,6 @@
 use shared::ShellCommand;
 
-use crate::judge::comparison::{StyledComparison, compare_styled};
+use crate::judge::comparison::{Comparison, compare};
 use crate::judge::verdict::{JudgeStatus, JudgeVerdict, Limitation, TleType};
 use crate::monitor::{JudgeMonitor, TimingStatus, load_monitor};
 
@@ -12,12 +12,12 @@ mod comparison;
 pub mod display;
 pub mod verdict;
 
-pub async fn evaluate<'a, 'b>(
-    runner: &'b ShellCommand,
-    input: &'a str,
-    ans: &'b str,
-    limit: &'b Limitation,
-) -> JudgeVerdict<'a> {
+pub async fn evaluate<'case>(
+    runner: &ShellCommand,
+    input: &'case str,
+    ans: &'case str,
+    limit: &Limitation,
+) -> JudgeVerdict<'case> {
     match evaluate_with_system_error(runner, input, ans, limit).await {
         Ok(verdict) => verdict,
         Err(e) => {
@@ -28,13 +28,12 @@ pub async fn evaluate<'a, 'b>(
     }
 }
 
-async fn evaluate_with_system_error<'a, 'b>(
-    runner: &'b ShellCommand,
-    input: &'a str,
-    ans: &'b str,
-    limit: &'b Limitation,
-) -> anyhow::Result<JudgeVerdict<'a>> {
-    let ans: &str = ans.trim_end();
+async fn evaluate_with_system_error<'case>(
+    runner: &ShellCommand,
+    input: &'case str,
+    ans: &'case str,
+    limit: &Limitation,
+) -> anyhow::Result<JudgeVerdict<'case>> {
     let mut verdict = JudgeVerdict::new(input);
 
     let mut monitor = load_monitor(runner, input, limit).await?;
@@ -44,22 +43,34 @@ async fn evaluate_with_system_error<'a, 'b>(
             verdict.duration(Some(output.duration));
             verdict.memory(output.memory);
 
-            if let Some(code) = output.status.code() {
+            if output.stdout_exceeded {
+                verdict.status(JudgeStatus::Ole(limit.max_stdout));
+                return Ok(verdict);
+            }
+
+            let status = output
+                .status
+                .ok_or_else(|| anyhow::anyhow!("missing child status after normal completion"))?;
+
+            if let Some(code) = status.code() {
                 log::debug!("Exit code: {code}");
             } else {
                 #[cfg(unix)]
-                if let Some(signal) = output.status.signal() {
+                if let Some(signal) = status.signal() {
                     log::debug!("Signal: {}", signal);
                 }
             }
 
-            let actual_output = String::from_utf8_lossy(&output.stdout);
-            match compare_styled(&actual_output, ans) {
-                StyledComparison::Same => {
+            let actual_output = match String::from_utf8(output.stdout) {
+                Ok(output) => output,
+                Err(error) => String::from_utf8_lossy(&error.into_bytes()).into_owned(),
+            };
+            match compare(actual_output, ans) {
+                Comparison::Same => {
                     verdict.status(JudgeStatus::AC);
                 }
-                StyledComparison::Diff(diff) => {
-                    if let Some(error_msg) = get_error_exit_status_description(output.status) {
+                Comparison::Diff(diff) => {
+                    if let Some(error_msg) = get_error_exit_status_description(status) {
                         let mut error_msg = error_msg.into_owned();
                         let stderr_msg = String::from_utf8_lossy(&output.stderr);
                         let stderr_msg = stderr_msg.trim();
@@ -67,6 +78,9 @@ async fn evaluate_with_system_error<'a, 'b>(
                         if !stderr_msg.is_empty() {
                             error_msg.push('\n');
                             error_msg.push_str(stderr_msg);
+                            if output.stderr_exceeded {
+                                error_msg.push_str("\n... (stderr truncated)");
+                            }
                         }
                         verdict.status(JudgeStatus::RE(error_msg));
                     } else {

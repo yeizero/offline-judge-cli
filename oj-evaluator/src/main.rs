@@ -129,6 +129,9 @@ async fn compile_source_code(info: &TestInfo) -> Option<ShellCommand> {
 
 async fn judge(info: TestInfo, runner: ShellCommand) {
     let mut limit = Limitation::default();
+    limit
+        .max_stdout(info.max_stdout)
+        .max_stderr(info.max_stderr);
 
     if let Some(time) = info.max_time {
         limit.max_time(Some(time));
@@ -178,7 +181,7 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
                     round_start_time = Instant::now();
 
                     print_test_info(&verdict, &limit);
-                    report.update(verdict, solving_round);
+                    report.update(&verdict, solving_round);
 
                     solving_round += 1;
                     if solving_round > test_rounds {
