@@ -3,13 +3,11 @@ resolver = "3"
 members = ["oj-evaluator", "oj-generator", "editor", "shared"]
 
 [workspace.package]
-version = "0.2.5"
+version = "0.2.6"
 edition = "2024"
 
 [workspace.lints.clippy]
-# Keep the evaluator's existing strict baseline across every workspace member.
 all = { level = "deny", priority = -1 }
-# Surface broader style and experimental suggestions without requiring unrelated fixes.
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 unwrap_used = "warn"

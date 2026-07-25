@@ -2,13 +2,15 @@ Evaluator:
   ☐ 寫test
   ☐ i18n
   ☐ 低權限judge
-  ☐ 使用cpu時間計時 (linux)
   ☐ 使用cpu時間計時 (mac)
   ☐ 完成Macos記憶體監測
   ☐ 檔案載入的測資直接用Stdio而非載入內容
-  ☐ win以外也套用防pipe deadlock新邏輯
+  ☐ 提供各語言prefix/suffix插入功能
+  ☐ testlib.h的validator, checker, interactor...功能
   ☐ 考慮java不計算初始化時間和記憶體 @low
   ☐ 讓編譯程式時保留顏色和遊標效果，預計用`portable_pty` @low
+  ✔ 使用cpu時間計時 (linux) @done(26-07-25 14:50)
+  ✔ win以外也套用防pipe deadlock新邏輯 @done(26-07-25 14:49)
   ✔ 編譯失敗後再執行也觸發重複使用編譯檔案 @high @done(26-04-28 18:57)
   ✔ 多線程評估測資 @done(25-11-10 20:50)
   ✔ 使用cpu時間計時 (windows) @done(25-11-10 13:11)

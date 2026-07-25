@@ -436,7 +436,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "editor"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1071,7 +1071,7 @@ dependencies = [
 
 [[package]]
 name = "oj-evaluator"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1101,7 +1101,7 @@ dependencies = [
 
 [[package]]
 name = "oj-generator"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -1548,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "dunce",
