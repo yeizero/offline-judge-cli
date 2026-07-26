@@ -5,6 +5,7 @@ use prettytable::{
     Cell, Row, Table,
     format::{FormatBuilder, LinePosition, LineSeparator},
 };
+use shared::tr;
 
 use crate::{
     judge::comparison::{StyleRange, TextAnchor, WrongAnswer},
@@ -42,10 +43,10 @@ impl JudgeReport {
         );
         report_table.set_titles(Row::new(vec![
             Cell::new(""),
-            Cell::new("測資"),
-            Cell::new("用時 (ms)"),
-            Cell::new("記憶體 (KiB)"),
-            Cell::new("結果"),
+            Cell::new(tr!(JudgeReportTestCaseHeader)),
+            Cell::new(tr!(JudgeReportTimeHeader)),
+            Cell::new(tr!(JudgeReportMemoryHeader)),
+            Cell::new(tr!(JudgeReportResultHeader)),
         ]));
 
         Self {
@@ -75,12 +76,15 @@ impl JudgeReport {
 
     pub fn printstd(&self) {
         println!(
-            "\n📝 總結: {:>33}",
+            "\n📝 {} {:>33}",
+            tr!(JudgeSummaryLabel),
             format!(
-                "正確 {} 錯誤 {} 正確比 {}%",
-                self.summary_info.success_rounds,
-                self.summary_info.current_rounds - self.summary_info.success_rounds,
-                self.summary_info.score()
+                "{}",
+                tr!(JudgeSummary {
+                    correct: self.summary_info.success_rounds,
+                    incorrect: self.summary_info.current_rounds - self.summary_info.success_rounds,
+                    ratio: self.summary_info.score()
+                })
             )
         );
 
@@ -214,7 +218,8 @@ fn format_side(text: &str, anchor: TextAnchor, styles: &[StyleRange], color: Sid
 
     let mut result = String::new();
     if has_above_omission {
-        result.push_str("... (以上省略)\n");
+        result.push_str(tr!(DiffAboveOmitted));
+        result.push('\n');
     }
 
     for segment in selected.iter().take(MAX_STYLED_SEGMENTS_PER_SIDE) {
@@ -225,9 +230,9 @@ fn format_side(text: &str, anchor: TextAnchor, styles: &[StyleRange], color: Sid
         }
     }
 
-    if has_below_omission && result.len() + "... (以下省略)".len() <= MAX_STYLED_BYTES_PER_SIDE
-    {
-        result.push_str("... (以下省略)");
+    let below_omission = tr!(DiffBelowOmitted);
+    if has_below_omission && result.len() + below_omission.len() <= MAX_STYLED_BYTES_PER_SIDE {
+        result.push_str(below_omission);
     }
 
     result
@@ -367,21 +372,23 @@ fn previous_char_boundary(text: &str, mut byte: usize) -> usize {
 
 pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
     match &verdict.status {
-        JudgeStatus::AC => println!("✅ [AC] 答案正確！"),
+        JudgeStatus::AC => println!("✅ [AC] {}", tr!(VerdictACInfo)),
         JudgeStatus::RE(msg) => println!("❌ [RE] {msg}"),
-        JudgeStatus::SE(err) => println!("❌ [SE] 內部錯誤：{err}"),
-        JudgeStatus::Ole(_) => println!("❌ [OLE] 程式輸出量超過限制！"),
-        JudgeStatus::Tle(_) => println!("❌ [TLE] 程式執行時間超過限制！"),
-        JudgeStatus::Mle(_) => println!("❌ [MLE] 程式記憶體使用量超過限制！"),
+        JudgeStatus::SE(err) => {
+            println!("❌ [SE] {}", tr!(VerdictSEInfo { error: err }));
+        }
+        JudgeStatus::Ole(_) => println!("❌ [OLE] {}", tr!(VerdictOLEInfo)),
+        JudgeStatus::Tle(_) => println!("❌ [TLE] {}", tr!(VerdictTLEInfo)),
+        JudgeStatus::Mle(_) => println!("❌ [MLE] {}", tr!(VerdictMLEInfo)),
         JudgeStatus::WA(diff) => {
             let display_input = if verdict.input.len() > 250 || verdict.input.lines().count() > 10 {
-                "(已隱藏過長內容)"
+                tr!(HiddenLongInput)
             } else {
                 verdict.input
             };
             let formatted = format_wrong_answer(diff);
 
-            println!("❌ [WA] 答案比對失敗！");
+            println!("❌ [WA] {}", tr!(VerdictWAInfo));
             println!(
                 "\n{}\n{}\n\n{}\n{}\n{}\n{}\n",
                 center_text("Input", INFO_SPACE, "-"),
@@ -397,11 +404,13 @@ pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
     if let Some(memory) = verdict.memory {
         println!();
         println!(
-            "📊 記憶體使用量: {} KiB / {} KiB",
-            memory.prettify(),
-            limit
-                .max_memory
-                .map_or_else(|| "無限制".to_string(), |i| i.prettify())
+            "📊 {}",
+            tr!(MemoryUsage {
+                used: memory.prettify(),
+                limit: limit
+                    .max_memory
+                    .map_or_else(|| tr!(Unlimited).to_string(), |i| i.prettify())
+            })
         );
     }
     if let Some(duration) = verdict.duration {
@@ -409,11 +418,13 @@ pub fn print_test_info(verdict: &JudgeVerdict, limit: &Limitation) {
             println!();
         }
         println!(
-            "⏱️ 程式執行耗時: {} ms / {} ms",
-            duration.as_millis().prettify(),
-            limit
-                .max_time
-                .map_or_else(|| "無限制".to_string(), |i| i.as_millis().prettify())
+            "⏱️ {}",
+            tr!(ExecutionTime {
+                used: duration.as_millis().prettify(),
+                limit: limit
+                    .max_time
+                    .map_or_else(|| tr!(Unlimited).to_string(), |i| i.as_millis().prettify())
+            })
         );
     }
 }

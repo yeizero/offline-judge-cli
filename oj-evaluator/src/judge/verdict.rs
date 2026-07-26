@@ -3,6 +3,7 @@ use std::fmt;
 use std::time::Duration;
 
 use owo_colors::OwoColorize;
+use shared::tr;
 
 use crate::judge::comparison::WrongAnswer;
 use crate::utils::PrettyNumber;
@@ -104,7 +105,7 @@ impl JudgeStatus<'_> {
         matches!(self, Self::AC)
     }
 
-    pub const fn to_str_short(&self) -> &str {
+    pub fn to_str_short(&self) -> &str {
         SummaryStatus::from_status(self).to_str_short()
     }
 }
@@ -131,17 +132,6 @@ pub enum CompileError<'a> {
     /// Compilation Error
     CE(Cow<'a, str>),
 }
-
-impl fmt::Display for CompileError<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::SE(msg) => write!(f, "系統錯誤 (SE): {msg}"),
-            Self::CE(msg) => write!(f, "編譯錯誤 (CE): {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for CompileError<'_> {}
 
 pub struct SummaryInfo {
     pub success_rounds: usize,
@@ -175,15 +165,15 @@ impl SummaryStatus {
         }
     }
 
-    const fn to_str_short(self) -> &'static str {
+    fn to_str_short(self) -> &'static str {
         match self {
-            Self::RE => "運行時錯誤 RE",
-            Self::SE => "系統錯誤 SE",
-            Self::WA => "答案錯誤 WA",
-            Self::Ole(_) => "輸出超限 OLE",
-            Self::Tle(_) => "超時錯誤 TLE",
-            Self::Mle(_) => "記憶體超限 MLE",
-            Self::AC => "答案正確 AC",
+            Self::RE => tr!(VerdictRE),
+            Self::SE => tr!(VerdictSE),
+            Self::WA => tr!(VerdictWA),
+            Self::Ole(_) => tr!(VerdictOLE),
+            Self::Tle(_) => tr!(VerdictTLE),
+            Self::Mle(_) => tr!(VerdictMLE),
+            Self::AC => tr!(VerdictAC),
         }
     }
 
@@ -251,7 +241,7 @@ impl fmt::Display for SummaryInfo {
                     f,
                     "{} (score: {}%)",
                     if self.current_rounds > 1 {
-                        "答案不正確 NA"
+                        tr!(VerdictNA)
                     } else {
                         status.to_str_short()
                     },

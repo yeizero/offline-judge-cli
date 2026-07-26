@@ -1,5 +1,7 @@
 use std::fmt;
 
+use shared::tr;
+
 #[derive(Debug)]
 pub enum ReaderError {
     NoConfigFile(String),
@@ -11,12 +13,12 @@ pub enum ReaderError {
 impl fmt::Display for ReaderError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::NoConfigFile(msg) => {
-                write!(f, "找不到配置檔：{msg}，考慮用'-n'參數直接執行程式")
+            Self::NoConfigFile(path) => {
+                write!(f, "{}", tr!(NoConfigFile { path }))
             }
-            Self::FileNotFound(msg) => write!(f, "檔案不存在：{msg}"),
-            Self::FolderNotFound(msg) => write!(f, "資料夾不存在：{msg}"),
-            Self::General(msg) => write!(f, "{msg}"),
+            Self::FileNotFound(path) => write!(f, "{}", tr!(FileNotFound { path })),
+            Self::FolderNotFound(path) => write!(f, "{}", tr!(FolderNotFound { path })),
+            Self::General(path) => write!(f, "{path}"),
         }
     }
 }

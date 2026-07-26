@@ -1,6 +1,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserialize;
 use serde::de::{self, Deserializer, Visitor};
+use shared::tr;
 use std::{fmt, fs};
 
 use super::error::ReaderError;
@@ -101,9 +102,13 @@ fn resolve_yaml_path<T: AsRef<Utf8Path>>(base_path: T) -> Result<Utf8PathBuf, Re
     match (yml_path.exists(), yaml_path.exists()) {
         (true, false) => Ok(yml_path),
         (false, true) => Ok(yaml_path),
-        (true, true) => Err(ReaderError::FileNotFound(format!(
-            "配置檔衝突：同時存在 {yml_path} 和 {yaml_path}"
-        ))),
+        (true, true) => Err(ReaderError::FileNotFound(
+            tr!(ConfigConflict {
+                path1: yml_path,
+                path2: yaml_path
+            })
+            .to_string(),
+        )),
         (false, false) => Err(ReaderError::NoConfigFile(yaml_path.into_string())),
     }
 }

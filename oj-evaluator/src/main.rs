@@ -19,7 +19,7 @@ use judge::{
     evaluate,
     verdict::{CompileError, Limitation},
 };
-use shared::ShellCommand;
+use shared::{ShellCommand, tr};
 use tokio::time::interval;
 
 use crate::{
@@ -73,7 +73,7 @@ async fn compile_source_code(info: &TestInfo) -> Option<ShellCommand> {
 
     if profile.compile.is_none() || (cache_state.is_fresh() && !info.force_compile) {
         if profile.compile.is_some() {
-            println!("📦 重複使用編譯檔案");
+            println!("📦 {}", tr!(ReuseCompilation));
         }
 
         return match prepare_command(&info.file, profile, true, || {}).await {
@@ -91,7 +91,12 @@ async fn compile_source_code(info: &TestInfo) -> Option<ShellCommand> {
     let timer_task = async {
         let timer = Instant::now();
         loop {
-            print!("\r🔨 正在編譯檔案 / {:.2}s", timer.elapsed().as_secs_f64());
+            print!(
+                "\r🔨 {}",
+                tr!(CompilingProgress {
+                    secs: timer.elapsed().as_secs_f64()
+                })
+            );
             let _ = stdout().flush();
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
@@ -195,7 +200,7 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
                 if solving_round <= test_rounds {
                     let elapsed = round_start_time.elapsed();
                     if elapsed > Duration::from_millis(250) {
-                        print!("執行中... {:.2}s\r", elapsed.as_secs_f64());
+                        print!("{}\r", tr!(ExecutionProgress {secs: elapsed.as_secs_f64()}));
                         let _ = std::io::stdout().flush();
                     }
                 }
@@ -207,6 +212,6 @@ async fn judge(info: TestInfo, runner: ShellCommand) {
 }
 
 fn execute(runner: &ShellCommand) {
-    println!("⚙️ 正在運行程式");
+    println!("⚙️ {}", tr!(RunningWithoutJudge));
     let _ = runner.build().status();
 }

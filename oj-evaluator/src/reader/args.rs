@@ -3,6 +3,7 @@ use super::test_cases::{TestCase, TestCasePath, read_test_cases};
 use crate::reader::{EvaluatorConfig, LanguageProfile};
 use camino::Utf8PathBuf;
 use clap::Parser;
+use shared::tr;
 use std::time::Duration;
 
 /// Evaluator - Code Judge Tool
@@ -69,10 +70,13 @@ pub fn resolve_args(args: Args, config: EvaluatorConfig) -> Result<TestInfo, Rea
                     path.set_extension(&lang_profile.extension);
                     if path.is_file() {
                         if let Some(old_ext) = &found_ext {
-                            return Err(ReaderError::General(format!(
-                                "發現多個可能的副檔名 (.{} vs .{})",
-                                old_ext, lang_profile.extension
-                            )));
+                            return Err(ReaderError::General(
+                                tr!(AmbiguousSourceExtension {
+                                    a: old_ext,
+                                    b: &lang_profile.extension
+                                })
+                                .to_string(),
+                            ));
                         }
                         found_ext = Some(&lang_profile.extension);
                     }
@@ -96,9 +100,12 @@ pub fn resolve_args(args: Args, config: EvaluatorConfig) -> Result<TestInfo, Rea
         .into_iter()
         .find(|l| l.extension == final_ext)
         .ok_or_else(|| {
-            ReaderError::General(format!(
-                "未知原始碼副檔名 {final_ext} ，請選擇 config.yaml 中含有的類型"
-            ))
+            ReaderError::General(
+                tr!(UnknownSourceExtension {
+                    extension: final_ext
+                })
+                .to_string(),
+            )
         })?;
 
     if args.no_judge {
