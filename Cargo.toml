@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["oj-evaluator", "oj-generator", "editor", "shared"]
+members = ["oj-evaluator", "oj-generator", "editor", "shared", "i18n-macro"]
 
 [workspace.package]
 version = "0.2.6"

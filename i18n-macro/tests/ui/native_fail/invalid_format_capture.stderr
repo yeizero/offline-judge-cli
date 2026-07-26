@@ -1,0 +1,5 @@
+error[E0425]: cannot find value `missing` in this scope
+ --> tests/ui/native_fail/invalid_format_capture.rs:5:26
+  |
+5 |     Broken { value } = "{missing}";
+  |                          ^^^^^^^ not found in this scope

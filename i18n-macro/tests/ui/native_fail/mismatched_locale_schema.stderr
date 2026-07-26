@@ -1,0 +1,53 @@
+error[E0053]: method `Count` has an incompatible type for trait
+  --> tests/ui/native_fail/mismatched_locale_schema.rs:15:5
+   |
+15 | /     catalog! {
+16 | |         schema: super::en_us;
+17 | |         Count { count: bool } = "{count}";
+18 | |     }
+   | |_____^ expected `usize`, found `bool`
+   |
+note: type in trait
+  --> tests/ui/native_fail/mismatched_locale_schema.rs:6:5
+   |
+ 6 | /     catalog! {
+ 7 | |         fallback;
+ 8 | |         Count { count: usize } = "{count}";
+ 9 | |     }
+   | |_____^
+   = note: expected signature `fn(&Count, &mut Formatter<'_>, PhantomData<((__I18nField_K5_Count_F5_count, usize),)>) -> Result<(), std::fmt::Error>`
+              found signature `fn(&Count, &mut Formatter<'_>, PhantomData<((__I18nField_K5_Count_F5_count, bool),)>) -> Result<(), std::fmt::Error>`
+   = note: this error originates in the macro `catalog` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: change the parameter type to match the trait
+   |
+15 -     catalog! {
+16 -         schema: super::en_us;
+17 -         Count { count: bool } = "{count}";
+18 -     }
+15 +     PhantomData<((__I18nField_K5_Count_F5_count, usize),)>
+   |
+
+error[E0308]: mismatched types
+  --> tests/ui/native_fail/mismatched_locale_schema.rs:15:5
+   |
+15 | /     catalog! {
+16 | |         schema: super::en_us;
+17 | |         Count { count: bool } = "{count}";
+18 | |     }
+   | |     ^
+   | |     |
+   | |     expected `&bool`, found `&usize`
+   | |_____arguments to this function are incorrect
+   |       this return type influences the call expression's return type
+   |
+   = note: expected reference `&bool`
+              found reference `&usize`
+note: function defined here
+  --> tests/ui/native_fail/mismatched_locale_schema.rs:15:5
+   |
+15 | /     catalog! {
+16 | |         schema: super::en_us;
+17 | |         Count { count: bool } = "{count}";
+18 | |     }
+   | |_____^
+   = note: this error originates in the macro `catalog` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,15 @@
+error[E0107]: missing generics for struct `Progress`
+ --> tests/ui/native_fail/dynamic_message_without_fields.rs:4:17
+  |
+4 |     let _ = tr!(Progress);
+  |                 ^^^^^^^^ expected 1 generic argument
+  |
+note: struct defined here, with 1 generic parameter: `__I18nArgument1`
+ --> tests/ui/native_fail/../support/../../catalogs/en_us.rs
+  |
+  |     Progress { disabled: bool, percent } =
+  |     ^^^^^^^^                   -------
+help: add missing generic argument
+  |
+4 |     let _ = tr!(Progress<__I18nArgument1>);
+  |                         +++++++++++++++++

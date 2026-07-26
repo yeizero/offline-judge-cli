@@ -1,0 +1,8 @@
+[package]
+name = "cross-provider"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+i18n-macro = { path = "../../../.." }

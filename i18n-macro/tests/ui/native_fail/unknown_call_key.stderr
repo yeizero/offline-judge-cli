@@ -1,0 +1,16 @@
+error[E0425]: cannot find type `Unknown` in module `$crate::__i18n_generated::schema`
+ --> tests/ui/native_fail/unknown_call_key.rs:4:17
+  |
+4 |       let _ = tr!(Unknown);
+  |                   ^^^^^^^ not found in `$crate::__i18n_generated::schema`
+  |
+ ::: tests/ui/native_fail/../support/native_setup.rs
+  |
+  | / define_i18n! {
+  | |     locale: Locale;
+  | |     current_locale: current_locale;
+  | |     schema: en_us;
+  | |     fallback EnUs: en_us;
+  | |     locale ZhTw: zh_tw;
+  | | }
+  | |_- due to this macro variable

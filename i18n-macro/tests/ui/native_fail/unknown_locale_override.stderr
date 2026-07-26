@@ -1,0 +1,10 @@
+error[E0438]: const `__I18N_Unknown` is not a member of trait `super::super::en_us::__i18n_catalog::CatalogImpl`
+  --> tests/ui/native_fail/unknown_locale_override.rs:15:5
+   |
+15 | /     catalog! {
+16 | |         schema: super::en_us;
+17 | |         Unknown = "unknown";
+18 | |     }
+   | |_____^ not a member of trait `super::super::en_us::__i18n_catalog::CatalogImpl`
+   |
+   = note: this error originates in the macro `catalog` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,18 @@
+error[E0063]: missing field `percent` in initializer of `Progress<_>`
+ --> tests/ui/native_fail/../support/native_setup.rs
+  |
+  | / define_i18n! {
+  | |     locale: Locale;
+  | |     current_locale: current_locale;
+  | |     schema: en_us;
+  | |     fallback EnUs: en_us;
+  | |     locale ZhTw: zh_tw;
+  | | }
+  | |_^ missing `percent`
+  |
+ ::: tests/ui/native_fail/missing_call_field.rs:4:13
+  |
+4 |       let _ = tr!(Progress { disabled: false });
+  |               --------------------------------- in this macro invocation
+  |
+  = note: this error originates in the macro `tr` (in Nightly builds, run with -Z macro-backtrace for more info)

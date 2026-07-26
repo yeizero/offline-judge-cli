@@ -1,0 +1,7 @@
+error[E0560]: struct `Progress<{integer}>` has no field named `extra`
+ --> tests/ui/native_fail/extra_call_field.rs:7:9
+  |
+7 |         extra: true,
+  |         ^^^^^ `Progress<_>` does not have this field
+  |
+  = note: all struct fields are already assigned

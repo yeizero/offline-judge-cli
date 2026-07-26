@@ -1,0 +1,7 @@
+error[E0062]: field `percent` specified more than once
+ --> tests/ui/native_fail/duplicate_call_field.rs:7:9
+  |
+6 |         percent: 3,
+  |         ---------- first use of `percent`
+7 |         percent: 4,
+  |         ^^^^^^^ used more than once

@@ -1,0 +1,5 @@
+error: message `About` has a duplicate catalog key
+ --> tests/ui/native_fail/duplicate_catalog_key.rs:6:5
+  |
+6 |     About = "second";
+  |     ^^^^^
