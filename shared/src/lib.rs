@@ -1,10 +1,21 @@
 #![allow(clippy::missing_errors_doc)]
+use i18n_macro::define_i18n;
 use std::io;
 use std::path::Path;
 use std::process::Command;
 use std::{env, path::PathBuf};
 
 pub mod bridge;
+
+define_i18n! {
+    locale: pub Locale;
+    current_locale: i18n::current_locale;
+    schema: i18n::zh_tw;
+    fallback ZhTw: i18n::zh_tw;
+    locale EnUs: i18n::en_us;
+}
+
+mod i18n;
 
 pub fn get_exe_dir() -> io::Result<PathBuf> {
     if cfg!(debug_assertions) {
