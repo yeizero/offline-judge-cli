@@ -6,11 +6,12 @@ mod en_us {
     use super::catalog;
 
     catalog! {
-        fallback;
+        default;
 
         About = "Evaluator";
         MissingStatic = "fallback";
         ExplicitEmpty = "fallback empty";
+        Heartbeat {} = "alive";
         MissingDynamic { count: usize } = "{count} fallback";
         Text { value } = "{value}";
         Progress { disabled: bool, percent: usize } =
@@ -76,6 +77,10 @@ fn fallback_catalog_generates_static_and_typed_dynamic_protocols() {
 
     assert_eq!(ABOUT, "Evaluator");
     assert_eq!(
+        render::<_, en_us::__i18n_catalog::Catalog>(en_us::__i18n_schema::Heartbeat {}),
+        "alive"
+    );
+    assert_eq!(
         render::<_, en_us::__i18n_catalog::Catalog>(en_us::__i18n_schema::Progress {
             disabled: true,
             percent: 35,
@@ -89,6 +94,11 @@ fn fallback_catalog_generates_static_and_typed_dynamic_protocols() {
         }),
         "35 / 100"
     );
+}
+
+#[test]
+fn default_catalog_proves_its_fallback_chain() {
+    en_us::__i18n_catalog::assert_complete_catalog::<en_us::__i18n_catalog::Catalog>();
 }
 
 #[test]

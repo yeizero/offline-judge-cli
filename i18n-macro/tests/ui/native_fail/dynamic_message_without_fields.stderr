@@ -4,12 +4,21 @@ error[E0107]: missing generics for struct `Progress`
 4 |     let _ = tr!(Progress);
   |                 ^^^^^^^^ expected 1 generic argument
   |
-note: struct defined here, with 1 generic parameter: `__I18nArgument1`
+note: struct defined here, with 1 generic parameter: `A1`
  --> tests/ui/native_fail/../support/../../catalogs/en_us.rs
   |
-  |     Progress { disabled: bool, percent } =
-  |     ^^^^^^^^                   -------
+  | / catalog! {
+  | |     default;
+  | |
+  | |     About = "Evaluator";
+... |
+  | |     Progress { disabled: bool, percent } =
+  | |     ^^^^^^^^
+... |
+  | |     Braces { value } = "{{{value}}}";
+  | | }
+  | |_-
 help: add missing generic argument
   |
-4 |     let _ = tr!(Progress<__I18nArgument1>);
-  |                         +++++++++++++++++
+4 |     let _ = tr!(Progress<A1>);
+  |                         ++++

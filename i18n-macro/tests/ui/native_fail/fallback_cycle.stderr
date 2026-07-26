@@ -1,0 +1,41 @@
+error[E0275]: overflow evaluating the requirement `cycle_a::__i18n_catalog::Catalog: CompleteCatalog`
+  --> tests/ui/native_fail/fallback_cycle.rs:6:5
+   |
+ 6 |     catalog! { default; Greeting = "English"; }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+12 |     catalog! { schema: super::en_us; fallback: super::cycle_b; Greeting = "A"; }
+   |     ---------------------------------------------------------------------------- in this macro invocation
+   |
+note: required for `cycle_b::__i18n_catalog::Catalog` to implement `CompleteCatalog`
+  --> tests/ui/native_fail/fallback_cycle.rs:6:5
+   |
+ 6 |     catalog! { default; Greeting = "English"; }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `CatalogImpl::Fallback`
+  --> tests/ui/native_fail/fallback_cycle.rs:6:5
+   |
+ 6 |     catalog! { default; Greeting = "English"; }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `CatalogImpl::Fallback`
+   = note: this error originates in the macro `i18n_macro::catalog` which comes from the expansion of the macro `catalog` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0275]: overflow evaluating the requirement `cycle_b::__i18n_catalog::Catalog: CompleteCatalog`
+  --> tests/ui/native_fail/fallback_cycle.rs:6:5
+   |
+ 6 |     catalog! { default; Greeting = "English"; }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+18 |     catalog! { schema: super::en_us; fallback: super::cycle_a; Greeting = "B"; }
+   |     ---------------------------------------------------------------------------- in this macro invocation
+   |
+note: required for `cycle_a::__i18n_catalog::Catalog` to implement `CompleteCatalog`
+  --> tests/ui/native_fail/fallback_cycle.rs:6:5
+   |
+ 6 |     catalog! { default; Greeting = "English"; }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `CatalogImpl::Fallback`
+  --> tests/ui/native_fail/fallback_cycle.rs:6:5
+   |
+ 6 |     catalog! { default; Greeting = "English"; }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `CatalogImpl::Fallback`
+   = note: this error originates in the macro `i18n_macro::catalog` which comes from the expansion of the macro `catalog` (in Nightly builds, run with -Z macro-backtrace for more info)

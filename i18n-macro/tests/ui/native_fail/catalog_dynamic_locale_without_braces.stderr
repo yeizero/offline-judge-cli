@@ -1,0 +1,5 @@
+error: dynamic default schema message `Heartbeat` requires locale argument braces
+  --> tests/ui/native_fail/catalog_dynamic_locale_without_braces.rs:17:9
+   |
+17 |         Heartbeat = "存活";
+   |         ^^^^^^^^^

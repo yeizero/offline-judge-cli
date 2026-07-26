@@ -1,0 +1,5 @@
+error: `..` must be the final locale field
+  --> tests/ui/native_fail/catalog_locale_rest_not_final.rs:17:17
+   |
+17 |         Count { .., count: usize } = "{count}";
+   |                 ^

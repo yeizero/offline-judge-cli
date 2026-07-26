@@ -13,6 +13,6 @@ define_i18n! {
     locale: Locale;
     current_locale: current_locale;
     schema: en_us;
-    fallback EnUs: en_us;
+    default EnUs: en_us;
     locale ZhTw: zh_tw;
 }

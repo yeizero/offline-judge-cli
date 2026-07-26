@@ -5,7 +5,7 @@ mod en_us {
 
     catalog! {
         default;
-        Count { count: usize } = "{count}";
+        About = "About";
     }
 }
 
@@ -14,7 +14,7 @@ mod zh_tw {
 
     catalog! {
         schema: super::en_us;
-        Count { count: bool } = "{count}";
+        About {} = "關於";
     }
 }
 

@@ -2,8 +2,7 @@ use i18n_macro::catalog;
 
 catalog! {
     default;
-    About = "first";
-    About = "second";
+    Count { count, .. } = "{count}";
 }
 
 fn main() {}

@@ -1,6 +1,4 @@
-use i18n_macro::catalog;
-
-catalog! {
+i18n_macro_renamed::catalog! {
     schema: super::en_us;
 
     Static = "Provider 繁中";

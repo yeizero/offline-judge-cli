@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 proc-macro2 = "1"
 quote = "1"
+proc-macro-crate = "3.5.0"
 syn = { version = "2", features = ["full", "extra-traits"] }
 
 [dev-dependencies]

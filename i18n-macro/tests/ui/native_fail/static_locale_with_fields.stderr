@@ -1,0 +1,5 @@
+error: static default schema message `About` does not accept locale fields
+  --> tests/ui/native_fail/static_locale_with_fields.rs:17:17
+   |
+17 |         About { value } = "Foo";
+   |                 ^^^^^

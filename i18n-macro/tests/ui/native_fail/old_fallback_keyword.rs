@@ -1,8 +1,8 @@
 use i18n_macro::catalog;
 
 catalog! {
-    default;
-    Broken { value } = "{missing}";
+    fallback;
+    About = "About";
 }
 
 fn main() {}

@@ -14,7 +14,7 @@ mod zh_tw {
 
     catalog! {
         schema: super::en_us;
-        Count { count: bool } = "{count}";
+        Count { .., count: usize } = "{count}";
     }
 }
 

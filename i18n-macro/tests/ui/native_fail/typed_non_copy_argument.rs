@@ -1,7 +1,7 @@
 use i18n_macro::catalog;
 
 catalog! {
-    fallback;
+    default;
     Owned { value: String } = "{value}";
 }
 

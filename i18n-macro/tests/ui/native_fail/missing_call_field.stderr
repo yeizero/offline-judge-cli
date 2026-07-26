@@ -5,7 +5,7 @@ error[E0063]: missing field `percent` in initializer of `Progress<_>`
   | |     locale: Locale;
   | |     current_locale: current_locale;
   | |     schema: en_us;
-  | |     fallback EnUs: en_us;
+  | |     default EnUs: en_us;
   | |     locale ZhTw: zh_tw;
   | | }
   | |_^ missing `percent`

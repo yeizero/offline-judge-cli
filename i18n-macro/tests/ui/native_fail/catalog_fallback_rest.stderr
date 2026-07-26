@@ -1,0 +1,5 @@
+error: `..` is only allowed in locale catalog entries
+ --> tests/ui/native_fail/catalog_fallback_rest.rs:5:20
+  |
+5 |     Count { count, .. } = "{count}";
+  |                    ^

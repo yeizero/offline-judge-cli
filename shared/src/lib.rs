@@ -11,7 +11,7 @@ define_i18n! {
     locale: pub Locale;
     current_locale: i18n::current_locale;
     schema: i18n::en_us;
-    fallback EnUs: i18n::en_us;
+    default EnUs: i18n::en_us;
     locale ZhTw: i18n::zh_tw;
     locale ZhCn: i18n::zh_cn;
 }

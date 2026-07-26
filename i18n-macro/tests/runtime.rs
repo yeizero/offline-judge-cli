@@ -28,7 +28,7 @@ define_i18n! {
     current_locale: current_locale;
     schema: en_us;
 
-    fallback EnUs: en_us;
+    default EnUs: en_us;
     locale ZhTw: zh_tw;
 }
 
@@ -72,6 +72,13 @@ fn generated_locale_and_static_messages_support_const_routing() {
     assert_static(ABOUT_EN);
     assert_eq!(ABOUT_EN, "Evaluator");
     assert_eq!(tr_for!(Locale::ZhTw, About), "評測器");
+}
+
+#[test]
+fn zero_field_dynamic_messages_require_braces_and_render_lazily() {
+    // Catches classifying `Message {}` as static merely because it has no fields.
+    set_current(Locale::EnUs);
+    assert_eq!(format!("{}", tr!(Heartbeat {})), "alive");
 }
 
 #[test]
@@ -220,6 +227,19 @@ fn generated_internal_bindings_do_not_capture_user_argument_names() {
             )
         ),
         "copy/7"
+    );
+    assert_eq!(
+        format!(
+            "{}",
+            tr_for!(
+                Locale::EnUs,
+                CopyValue {
+                    copy_value: 4,
+                    value: 3
+                }
+            )
+        ),
+        "7"
     );
     assert_eq!(
         format!(

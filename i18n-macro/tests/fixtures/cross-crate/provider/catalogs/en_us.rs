@@ -1,7 +1,5 @@
-use i18n_macro::catalog;
-
-catalog! {
-    fallback;
+i18n_macro_renamed::catalog! {
+    default;
 
     Static = "Provider English";
     Dynamic { value } = "English {value}";

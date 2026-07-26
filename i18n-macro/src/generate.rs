@@ -1,33 +1,68 @@
-use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote};
-use syn::{Ident, Result};
+use std::collections::HashSet;
+
+use proc_macro2::{Span, TokenStream, TokenTree};
+use quote::{ToTokens as _, quote, quote_spanned};
+use syn::{Ident, Result, ext::IdentExt as _, spanned::Spanned as _};
 
 use crate::{
     catalog::{CatalogInput, CatalogKind, Message, MessageArgument},
     input::AggregatorInput,
     lower::lower_message_expression,
+    relay::{LocaleRelayInput, LocaleWithSchemaInput, MessageSchema, validate_locale_schema},
 };
 
 pub fn expand_catalog(input: &CatalogInput) -> Result<TokenStream> {
     match &input.kind {
-        CatalogKind::Fallback => expand_fallback(input),
-        CatalogKind::Schema(path) => expand_partial(input, path),
+        CatalogKind::Default => expand_default(input),
+        CatalogKind::Schema(path) => {
+            let _ = path;
+            unreachable!("authored locale catalogs parse as LocaleRelayInput")
+        }
     }
+}
+
+pub fn expand_locale_relay(input: &LocaleRelayInput) -> Result<TokenStream> {
+    let schema = &input.schema_path;
+    let fallback_path = input.fallback_path.as_ref().unwrap_or(schema);
+    let locale_tokens = &input.locale_tokens;
+    let callback = catalog_macro_path()?;
+
+    Ok(quote! {
+        #schema::__i18n_catalog::apply_locale! {
+            callback: #callback;
+            schema_path: #schema;
+            fallback_path: #fallback_path;
+            locale {
+                #locale_tokens
+            }
+        }
+    })
+}
+
+pub fn expand_locale(input: &LocaleWithSchemaInput) -> Result<TokenStream> {
+    expand_partial_with_schema(
+        &input.locale_messages,
+        &input.schema_path,
+        &input.fallback_path,
+        &input.schema_messages,
+    )
 }
 
 pub fn expand_define(input: &AggregatorInput) -> TokenStream {
     let visibility = &input.visibility;
     let locale = &input.locale;
-    let formatter = generated_ident("__i18n_formatter");
+    let formatter = generated_ident("formatter");
+    let generated_locale = generated_ident("Locale");
+    let message = generated_ident("M");
     let current_locale = path_from_generated_module(&input.current_locale);
     let schema_module = path_from_generated_module(&input.schema);
     let schema = quote!(#schema_module::__i18n_schema);
     let protocol = quote!(#schema_module::__i18n_catalog);
-    let variants = std::iter::once(&input.fallback)
+    let variants = std::iter::once(&input.default_catalog)
         .chain(&input.locales)
         .map(|catalog| &catalog.variant)
         .collect::<Vec<_>>();
-    let catalogs = std::iter::once(&input.fallback)
+    let catalogs = std::iter::once(&input.default_catalog)
         .chain(&input.locales)
         .map(|catalog| {
             let module = path_from_generated_module(&catalog.module);
@@ -42,14 +77,14 @@ pub fn expand_define(input: &AggregatorInput) -> TokenStream {
         .map(|catalog| quote!(#protocol::DynamicMessage<#catalog>));
     let static_routes = variants.iter().zip(&catalogs).map(|(variant, catalog)| {
         quote! {
-            __I18nLocale::#variant =>
-                <__I18nMessage as #protocol::StaticMessage<#catalog>>::VALUE
+            #generated_locale::#variant =>
+                <#message as #protocol::StaticMessage<#catalog>>::VALUE
         }
     });
     let dynamic_routes = variants.iter().zip(&catalogs).map(|(variant, catalog)| {
         quote! {
-            __I18nLocale::#variant =>
-                <__I18nMessage as #protocol::DynamicMessage<#catalog>>::render(
+            #generated_locale::#variant =>
+                <#message as #protocol::DynamicMessage<#catalog>>::render(
                     &self.message,
                     #formatter,
                 )
@@ -66,36 +101,34 @@ pub fn expand_define(input: &AggregatorInput) -> TokenStream {
 
         #[doc(hidden)]
         pub mod __i18n_generated {
-            use super::#locale as __I18nLocale;
-            #[doc(hidden)]
+            use super::#locale as #generated_locale;
             pub use #schema as schema;
 
             #[inline]
-            pub fn current_locale() -> __I18nLocale {
+            pub fn current_locale() -> #generated_locale {
                 #current_locale()
             }
 
             #[inline]
-            pub const fn static_for<__I18nMessage>(
-                locale: __I18nLocale,
+            pub const fn static_for<#message>(
+                locale: #generated_locale,
             ) -> &'static str
             where
-                __I18nMessage: #(#static_bounds)+*,
+                #message: #(#static_bounds)+*,
             {
                 match locale {
                     #(#static_routes,)*
                 }
             }
 
-            #[doc(hidden)]
-            pub struct Localized<__I18nMessage> {
-                pub locale: __I18nLocale,
-                pub message: __I18nMessage,
+            pub struct Localized<#message> {
+                pub locale: #generated_locale,
+                pub message: #message,
             }
 
-            impl<__I18nMessage> ::core::fmt::Display for Localized<__I18nMessage>
+            impl<#message> ::core::fmt::Display for Localized<#message>
             where
-                __I18nMessage: #(#dynamic_bounds)+*,
+                #message: #(#dynamic_bounds)+*,
             {
                 fn fmt(
                     &self,
@@ -147,38 +180,27 @@ fn caller_macros() -> TokenStream {
 }
 
 #[allow(clippy::too_many_lines)]
-fn expand_fallback(input: &CatalogInput) -> Result<TokenStream> {
+fn expand_default(input: &CatalogInput) -> Result<TokenStream> {
     let schema = quote!(__i18n_schema);
-    let formatter = generated_ident("__i18n_formatter");
+    let formatter = generated_ident("formatter");
     let static_messages = input
         .messages
         .iter()
-        .filter(|message| message.arguments.is_empty())
+        .filter(|message| !message.has_argument_braces)
         .collect::<Vec<_>>();
     let dynamic_messages = input
         .messages
         .iter()
-        .filter(|message| !message.arguments.is_empty())
+        .filter(|message| message.has_argument_braces)
         .collect::<Vec<_>>();
 
     let static_types = static_messages.iter().map(|message| {
         let key = &message.key;
         quote! {
-            #[doc(hidden)]
             pub struct #key;
         }
     });
     let dynamic_types = dynamic_messages.iter().copied().map(dynamic_type);
-    let field_markers = dynamic_messages.iter().copied().flat_map(|message| {
-        message.arguments.iter().map(|argument| {
-            let marker = field_marker(&message.key, &argument.name);
-            quote! {
-                #[doc(hidden)]
-                #[allow(non_camel_case_types)]
-                pub struct #marker;
-            }
-        })
-    });
     let trait_static_items = static_messages.iter().map(|message| {
         let name = static_name(&message.key);
         quote! {
@@ -190,56 +212,57 @@ fn expand_fallback(input: &CatalogInput) -> Result<TokenStream> {
         .iter()
         .copied()
         .map(|message| dynamic_trait_item(message, &schema, &formatter));
-    let fallback_static_items = static_messages.iter().map(|message| {
+    let default_static_items = static_messages.iter().map(|message| {
         let name = static_name(&message.key);
         let expression = &message.expression;
         quote!(const #name: &'static str = #expression;)
     });
-    let fallback_dynamic_items = dynamic_messages
+    let default_dynamic_items = dynamic_messages
         .iter()
         .copied()
         .map(|message| dynamic_override(message, &schema, &formatter))
         .collect::<Result<Vec<_>>>()?;
+    let copy_helper = typed_copy_helper(&input.messages);
     let static_mappings = static_messages.iter().map(|message| {
         let key = &message.key;
         let name = static_name(key);
         quote! {
-            impl<__I18nCatalog: CatalogImpl> StaticMessage<__I18nCatalog>
+            impl<C: CatalogImpl> StaticMessage<C>
                 for __i18n_schema::#key
             {
-                const VALUE: &'static str = __I18nCatalog::#name;
+                const VALUE: &'static str = C::#name;
             }
         }
     });
     let dynamic_mappings = dynamic_messages.iter().copied().map(|message| {
         let key = &message.key;
-        let shape = message_shape(message);
+        let shape = message_shape(&message.arguments);
         let parameters = &shape.parameters;
         let message_type = shape.type_tokens_with_schema(key, &schema);
         let implementation_generics = if parameters.is_empty() {
-            quote!(<__I18nCatalog>)
+            quote!(<C>)
         } else {
-            quote!(<__I18nCatalog, #(#parameters),*>)
+            quote!(<C, #(#parameters),*>)
         };
         quote! {
-            impl #implementation_generics DynamicMessage<__I18nCatalog> for #message_type
+            impl #implementation_generics DynamicMessage<C> for #message_type
             where
-                __I18nCatalog: CatalogImpl,
+                C: CatalogImpl,
                 #(#parameters: ::core::fmt::Display,)*
             {
                 fn render(
                     &self,
                     #formatter: &mut ::core::fmt::Formatter<'_>,
                 ) -> ::core::fmt::Result {
-                    __I18nCatalog::#key(
+                    C::#key(
                         self,
                         #formatter,
-                        ::core::marker::PhantomData,
                     )
                 }
             }
         }
     });
+    let relay_schema = input.messages.iter().map(schema_manifest_message);
 
     Ok(quote! {
         #[doc(hidden)]
@@ -249,10 +272,6 @@ fn expand_fallback(input: &CatalogInput) -> Result<TokenStream> {
 
             #(#static_types)*
             #(#dynamic_types)*
-            #(#field_markers)*
-
-            #[doc(hidden)]
-            pub struct __I18nUntyped;
         }
 
         #[doc(hidden)]
@@ -261,44 +280,79 @@ fn expand_fallback(input: &CatalogInput) -> Result<TokenStream> {
             use super::*;
             use super::__i18n_schema;
 
-            #[doc(hidden)]
-            trait CompleteCatalog: CatalogImpl {}
+            pub struct FallbackEnd;
+
+            pub trait FallbackGraph {
+                type Parent;
+            }
+
+            trait CompleteCatalog {}
+
+            impl CompleteCatalog for FallbackEnd {}
+
+            impl<T> CompleteCatalog for T
+            where
+                T: CatalogImpl + FallbackGraph,
+                T::Parent: CompleteCatalog,
+            {}
 
             #[doc(hidden)]
             #[allow(private_bounds)]
+            pub fn assert_complete_catalog<T: CompleteCatalog>() {}
+
+            #[allow(private_bounds)]
             #[allow(non_snake_case, non_upper_case_globals)]
             pub trait CatalogImpl: Sized {
-                type Fallback: CompleteCatalog;
-                #[doc(hidden)]
-                const __I18N_GENERATED_CATALOG: ();
+                type Fallback: CatalogImpl + CompleteCatalog;
 
                 #(#trait_static_items)*
                 #(#trait_dynamic_items)*
             }
 
-            #[doc(hidden)]
             pub struct Catalog;
+
+            #copy_helper
 
             #[allow(non_snake_case, non_upper_case_globals)]
             impl CatalogImpl for Catalog {
                 type Fallback = Self;
-                const __I18N_GENERATED_CATALOG: () = ();
 
-                #(#fallback_static_items)*
-                #(#fallback_dynamic_items)*
+                #(#default_static_items)*
+                #(#default_dynamic_items)*
             }
 
-            impl CompleteCatalog for Catalog {}
+            impl FallbackGraph for Catalog {
+                type Parent = FallbackEnd;
+            }
 
-            #[doc(hidden)]
-            pub trait StaticMessage<__I18nCatalog: CatalogImpl> {
+            macro_rules! apply_locale {
+                (
+                    callback: $callback:path;
+                    schema_path: $schema:path;
+                    fallback_path: $fallback_path:path;
+                    locale { $($locale:tt)* }
+                ) => {
+                    $callback! {
+                        @locale_with_schema;
+                        schema_path: $schema;
+                        fallback_path: $fallback_path;
+                        schema {
+                            #(#relay_schema)*
+                        }
+                        locale { $($locale)* }
+                    }
+                };
+            }
+
+            pub(crate) use apply_locale;
+
+            pub trait StaticMessage<C: CatalogImpl> {
                 const VALUE: &'static str;
             }
 
             #(#static_mappings)*
 
-            #[doc(hidden)]
-            pub trait DynamicMessage<__I18nCatalog: CatalogImpl> {
+            pub trait DynamicMessage<C: CatalogImpl> {
                 fn render(
                     &self,
                     #formatter: &mut ::core::fmt::Formatter<'_>,
@@ -310,26 +364,40 @@ fn expand_fallback(input: &CatalogInput) -> Result<TokenStream> {
     })
 }
 
-fn expand_partial(input: &CatalogInput, schema: &syn::Path) -> Result<TokenStream> {
+fn expand_partial_with_schema(
+    locale_messages: &[Message],
+    schema: &syn::Path,
+    fallback_path: &syn::Path,
+    schema_messages: &[MessageSchema],
+) -> Result<TokenStream> {
+    let validated_schema_messages = validate_locale_schema(schema_messages, locale_messages)?;
+    let fallback_path_span = fallback_path.span();
     let schema = path_from_generated_module(schema);
+    let fallback_path = path_from_generated_module(fallback_path);
     let schema_types = quote!(#schema::__i18n_schema);
     let protocol = quote!(#schema::__i18n_catalog);
-    let formatter = generated_ident("__i18n_formatter");
-    let static_items = input
-        .messages
-        .iter()
-        .filter(|message| message.arguments.is_empty())
-        .map(|message| {
-            let name = static_name(&message.key);
-            let expression = &message.expression;
-            quote!(const #name: &'static str = #expression;)
-        });
-    let dynamic_items = input
-        .messages
-        .iter()
-        .filter(|message| !message.arguments.is_empty())
-        .map(|message| dynamic_override(message, &schema_types, &formatter))
-        .collect::<Result<Vec<_>>>()?;
+    let fallback_protocol = quote!(#fallback_path::__i18n_catalog);
+    let fallback_catalog = quote_spanned!(fallback_path_span=> #fallback_protocol::Catalog);
+    let local_proof = quote_spanned!(fallback_path_span=>
+        const _: fn() = #protocol::assert_complete_catalog::<Catalog>;
+    );
+    let formatter = generated_ident("formatter");
+    let copy_helper = typed_copy_helper(locale_messages);
+    let mut static_items = Vec::new();
+    let mut dynamic_items = Vec::new();
+
+    for (message, schema_message) in locale_messages.iter().zip(validated_schema_messages) {
+        if schema_message.is_dynamic {
+            dynamic_items.push(dynamic_override_with_schema(
+                message,
+                schema_message,
+                &schema_types,
+                &formatter,
+            )?);
+        } else {
+            static_items.push(static_override(message));
+        }
+    }
 
     Ok(quote! {
         #[doc(hidden)]
@@ -337,29 +405,71 @@ fn expand_partial(input: &CatalogInput, schema: &syn::Path) -> Result<TokenStrea
             #[allow(unused_imports)]
             use super::*;
 
-            #[doc(hidden)]
             pub struct Catalog;
+
+            #copy_helper
 
             #[allow(non_snake_case, non_upper_case_globals)]
             impl #protocol::CatalogImpl for Catalog {
-                type Fallback = #protocol::Catalog;
-                const __I18N_GENERATED_CATALOG: () = ();
+                type Fallback = #fallback_catalog;
 
                 #(#static_items)*
                 #(#dynamic_items)*
             }
+
+            impl #protocol::FallbackGraph for Catalog {
+                type Parent = #fallback_catalog;
+            }
+
+            #local_proof
         }
     })
 }
 
+fn schema_manifest_message(message: &Message) -> TokenStream {
+    let key = &message.key;
+    if message.has_argument_braces {
+        let arguments = message.arguments.iter().map(|argument| {
+            let name = &argument.name;
+            if let Some(ty) = &argument.ty {
+                quote!(#name: #ty)
+            } else {
+                quote!(#name)
+            }
+        });
+        quote!(dynamic #key { #(#arguments),* };)
+    } else {
+        quote!(static #key;)
+    }
+}
+
+fn catalog_macro_path() -> Result<TokenStream> {
+    match proc_macro_crate::crate_name(env!("CARGO_PKG_NAME")) {
+        Ok(proc_macro_crate::FoundCrate::Itself) => Ok(quote!(crate::catalog)),
+        Ok(proc_macro_crate::FoundCrate::Name(name)) => {
+            let crate_name = Ident::new(&name, Span::call_site());
+            Ok(quote!(#crate_name::catalog))
+        }
+        Err(error) => Err(syn::Error::new(
+            Span::call_site(),
+            format!("could not resolve the catalog macro crate: {error}"),
+        )),
+    }
+}
+
+fn static_override(message: &Message) -> TokenStream {
+    let name = static_name(&message.key);
+    let expression = &message.expression;
+    quote!(const #name: &'static str = #expression;)
+}
+
 fn dynamic_type(message: &Message) -> TokenStream {
     let key = &message.key;
-    let shape = message_shape(message);
+    let shape = message_shape(&message.arguments);
     let declaration_generics = shape.declaration_generics();
     let fields = shape.fields.iter().map(|(name, ty)| quote!(pub #name: #ty));
 
     quote! {
-        #[doc(hidden)]
         #[allow(clippy::pub_underscore_fields)]
         pub struct #key #declaration_generics {
             #(#fields,)*
@@ -369,22 +479,19 @@ fn dynamic_type(message: &Message) -> TokenStream {
 
 fn dynamic_trait_item(message: &Message, schema: &TokenStream, formatter: &Ident) -> TokenStream {
     let key = &message.key;
-    let shape = message_shape(message);
+    let shape = message_shape(&message.arguments);
     let method_generics = shape.method_generics();
     let message_type = shape.type_tokens_with_schema(key, schema);
-    let signature = signature_type(message, schema);
-    let message_value = generated_ident("__i18n_message");
+    let message_value = generated_ident("message");
 
     quote! {
         fn #key #method_generics (
             #message_value: &#message_type,
             #formatter: &mut ::core::fmt::Formatter<'_>,
-            __i18n_signature: ::core::marker::PhantomData<#signature>,
         ) -> ::core::fmt::Result {
             <Self::Fallback as CatalogImpl>::#key(
                 #message_value,
                 #formatter,
-                __i18n_signature,
             )
         }
     }
@@ -396,23 +503,15 @@ fn dynamic_override(
     formatter: &Ident,
 ) -> Result<TokenStream> {
     let key = &message.key;
-    let shape = message_shape(message);
+    let shape = message_shape(&message.arguments);
     let method_generics = shape.method_generics();
     let message_type = shape.type_tokens_with_schema(key, schema);
-    let signature = signature_type(message, schema);
-    let message_value = generated_ident("__i18n_message");
+    let message_value = generated_ident("message");
     let bindings = message.arguments.iter().map(|argument| {
         let name = &argument.name;
         if let Some(ty) = &argument.ty {
             quote! {
-                let #name: #ty = {
-                    fn __i18n_copy<__I18nValue: ::core::marker::Copy>(
-                        value: &__I18nValue,
-                    ) -> __I18nValue {
-                        *value
-                    }
-                    __i18n_copy(&#message_value.#name)
-                };
+                let #name: #ty = Catalog::copy_value(&#message_value.#name);
             }
         } else {
             quote!(let #name = &#message_value.#name;)
@@ -425,7 +524,6 @@ fn dynamic_override(
         fn #key #method_generics (
             #message_value: &#message_type,
             #formatter: &mut ::core::fmt::Formatter<'_>,
-            _: ::core::marker::PhantomData<#signature>,
         ) -> ::core::fmt::Result {
             #(#bindings)*
             #body
@@ -433,36 +531,65 @@ fn dynamic_override(
     })
 }
 
+fn dynamic_override_with_schema(
+    message: &Message,
+    schema_message: &MessageSchema,
+    schema: &TokenStream,
+    formatter: &Ident,
+) -> Result<TokenStream> {
+    let key = &message.key;
+    let shape = message_shape(&schema_message.arguments);
+    let method_generics = shape.method_generics();
+    let message_type = shape.type_tokens_with_schema(key, schema);
+    let message_value = generated_ident("message");
+    let bindings = message.arguments.iter().map(|argument| {
+        let name = &argument.name;
+        if let Some(ty) = &argument.ty {
+            quote! {
+                let #name: #ty = Catalog::copy_value(&#message_value.#name);
+            }
+        } else {
+            quote!(let #name = &#message_value.#name;)
+        }
+    });
+    let body = lower_message_expression(&message.expression, formatter)?;
+
+    Ok(quote! {
+        #[allow(unused_variables)]
+        fn #key #method_generics (
+            #message_value: &#message_type,
+            #formatter: &mut ::core::fmt::Formatter<'_>,
+        ) -> ::core::fmt::Result {
+            #(#bindings)*
+            #body
+        }
+    })
+}
+
+fn typed_copy_helper(messages: &[Message]) -> TokenStream {
+    if messages
+        .iter()
+        .flat_map(|message| &message.arguments)
+        .any(|argument| argument.ty.is_some())
+    {
+        quote! {
+            impl Catalog {
+                fn copy_value<T: ::core::marker::Copy>(value: &T) -> T {
+                    *value
+                }
+            }
+        }
+    } else {
+        TokenStream::new()
+    }
+}
+
 fn static_name(key: &Ident) -> Ident {
-    format_ident!("__I18N_{key}", span = key.span())
+    key.clone()
 }
 
 fn generated_ident(name: &str) -> Ident {
     Ident::new(name, Span::mixed_site())
-}
-
-fn field_marker(key: &Ident, argument: &Ident) -> Ident {
-    let key_length = key.to_string().len();
-    let argument_length = argument.to_string().len();
-    format_ident!(
-        "__I18nField_K{key_length}_{key}_F{argument_length}_{argument}",
-        span = argument.span(),
-    )
-}
-
-fn signature_type(message: &Message, schema: &TokenStream) -> TokenStream {
-    let elements = canonical_arguments(message).into_iter().map(|argument| {
-        let marker = field_marker(&message.key, &argument.name);
-        let marker = quote!(#schema::#marker);
-        let ty = if let Some(ty) = &argument.ty {
-            quote!(#ty)
-        } else {
-            quote!(#schema::__I18nUntyped)
-        };
-        quote!((#marker, #ty))
-    });
-
-    quote!((#(#elements,)*))
 }
 
 struct MessageShape {
@@ -500,23 +627,28 @@ impl MessageShape {
     }
 }
 
-fn message_shape(message: &Message) -> MessageShape {
+fn message_shape(arguments: &[MessageArgument]) -> MessageShape {
+    let reserved_type_identifiers = arguments
+        .iter()
+        .filter_map(|argument| argument.ty.as_ref())
+        .flat_map(type_identifier_names)
+        .collect::<HashSet<_>>();
     let mut parameters = Vec::new();
-    let fields = canonical_arguments(message)
+    let fields = canonical_arguments(arguments)
         .into_iter()
         .enumerate()
         .map(|(index, argument)| {
             (
                 argument.name.clone(),
-                argument_type(index, argument, &mut parameters),
+                argument_type(index, argument, &reserved_type_identifiers, &mut parameters),
             )
         })
         .collect();
     MessageShape { parameters, fields }
 }
 
-fn canonical_arguments(message: &Message) -> Vec<&MessageArgument> {
-    let mut arguments = message.arguments.iter().collect::<Vec<_>>();
+fn canonical_arguments(arguments: &[MessageArgument]) -> Vec<&MessageArgument> {
+    let mut arguments = arguments.iter().collect::<Vec<_>>();
     arguments.sort_by_key(|argument| argument.name.to_string());
     arguments
 }
@@ -524,15 +656,43 @@ fn canonical_arguments(message: &Message) -> Vec<&MessageArgument> {
 fn argument_type(
     index: usize,
     argument: &MessageArgument,
+    reserved_type_identifiers: &HashSet<String>,
     parameters: &mut Vec<Ident>,
 ) -> TokenStream {
     if let Some(ty) = &argument.ty {
         quote!(#ty)
     } else {
-        let parameter = format_ident!("__I18nArgument{index}", span = argument.name.span());
+        let mut suffix = index;
+        let parameter = loop {
+            let candidate = format!("A{suffix}");
+            if !reserved_type_identifiers.contains(&candidate)
+                && parameters
+                    .iter()
+                    .all(|parameter| parameter != candidate.as_str())
+            {
+                break Ident::new(&candidate, Span::mixed_site());
+            }
+            suffix += 1;
+        };
         parameters.push(parameter.clone());
         quote!(#parameter)
     }
+}
+
+fn type_identifier_names(ty: &syn::Type) -> Vec<String> {
+    fn collect(tokens: TokenStream, identifiers: &mut Vec<String>) {
+        for token in tokens {
+            match token {
+                TokenTree::Ident(identifier) => identifiers.push(identifier.unraw().to_string()),
+                TokenTree::Group(group) => collect(group.stream(), identifiers),
+                TokenTree::Literal(_) | TokenTree::Punct(_) => {}
+            }
+        }
+    }
+
+    let mut identifiers = Vec::new();
+    collect(ty.to_token_stream(), &mut identifiers);
+    identifiers
 }
 
 fn path_from_generated_module(path: &syn::Path) -> TokenStream {
@@ -545,21 +705,5 @@ fn path_from_generated_module(path: &syn::Path) -> TokenStream {
         quote!(#path)
     } else {
         quote!(super::#path)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use quote::format_ident;
-
-    use super::field_marker;
-
-    #[test]
-    fn field_marker_identity_is_structurally_unambiguous() {
-        // Catches separator-only concatenation aliasing distinct key/field pairs.
-        assert_ne!(
-            field_marker(&format_ident!("A_B"), &format_ident!("C")),
-            field_marker(&format_ident!("A"), &format_ident!("B_C")),
-        );
     }
 }

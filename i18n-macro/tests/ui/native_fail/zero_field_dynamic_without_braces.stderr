@@ -1,0 +1,40 @@
+error[E0277]: the trait bound `Heartbeat: StaticMessage<Catalog>` is not satisfied
+  --> tests/ui/native_fail/zero_field_dynamic_without_braces.rs:16:1
+   |
+16 | / define_i18n! {
+17 | |     locale: Locale;
+18 | |     current_locale: current_locale;
+19 | |     schema: en_us;
+20 | |     default EnUs: en_us;
+21 | | }
+   | |_^ unsatisfied trait bound
+...
+24 |       let _ = tr!(Heartbeat);
+   |               -------------- in this macro invocation
+   |
+help: the trait `StaticMessage<Catalog>` is not implemented for `Heartbeat`
+  --> tests/ui/native_fail/zero_field_dynamic_without_braces.rs:6:5
+   |
+ 6 | /     catalog! {
+ 7 | |         default;
+ 8 | |         Heartbeat {} = "alive";
+   | |_________________^
+help: this trait has no implementations, consider adding one
+  --> tests/ui/native_fail/zero_field_dynamic_without_braces.rs:6:5
+   |
+ 6 | /     catalog! {
+ 7 | |         default;
+ 8 | |         Heartbeat {} = "alive";
+ 9 | |     }
+   | |_____^
+note: required by a bound in `static_for`
+  --> tests/ui/native_fail/zero_field_dynamic_without_braces.rs:16:1
+   |
+16 | / define_i18n! {
+17 | |     locale: Locale;
+18 | |     current_locale: current_locale;
+19 | |     schema: en_us;
+20 | |     default EnUs: en_us;
+21 | | }
+   | |_^ required by this bound in `static_for`
+   = note: this error originates in the macro `tr` which comes from the expansion of the macro `define_i18n` (in Nightly builds, run with -Z macro-backtrace for more info)

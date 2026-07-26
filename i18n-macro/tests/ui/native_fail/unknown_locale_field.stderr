@@ -1,0 +1,5 @@
+error: locale field `counta` does not exist for dynamic default schema message `Count`; did you mean `count`?
+  --> tests/ui/native_fail/unknown_locale_field.rs:17:17
+   |
+17 |         Count { counta } = "Foo";
+   |                 ^^^^^^

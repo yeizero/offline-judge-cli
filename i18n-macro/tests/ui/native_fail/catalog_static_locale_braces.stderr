@@ -1,0 +1,5 @@
+error: static default schema message `About` does not accept locale braces
+  --> tests/ui/native_fail/catalog_static_locale_braces.rs:17:9
+   |
+17 |         About {} = "關於";
+   |         ^^^^^

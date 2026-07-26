@@ -4,16 +4,24 @@ error[E0277]: the trait bound `Incomplete: CompleteCatalog` is not satisfied
 15 |     type Fallback = Self;
    |                     ^^^^ unsatisfied trait bound
    |
-help: the trait `CompleteCatalog` is not implemented for `Incomplete`
+help: the trait `FallbackGraph` is not implemented for `Incomplete`
   --> tests/ui/native_fail/incomplete_manual_fallback.rs:12:1
    |
 12 | struct Incomplete;
    | ^^^^^^^^^^^^^^^^^
-help: the trait `CompleteCatalog` is implemented for `Catalog`
+help: the trait `FallbackGraph` is implemented for `Catalog`
   --> tests/ui/native_fail/incomplete_manual_fallback.rs:6:5
    |
  6 | /     catalog! {
- 7 | |         fallback;
+ 7 | |         default;
+ 8 | |         About = "Evaluator";
+ 9 | |     }
+   | |_____^
+note: required for `Incomplete` to implement `CompleteCatalog`
+  --> tests/ui/native_fail/incomplete_manual_fallback.rs:6:5
+   |
+ 6 | /     catalog! {
+ 7 | |         default;
  8 | |         About = "Evaluator";
  9 | |     }
    | |_____^
@@ -21,7 +29,7 @@ note: required by a bound in `CatalogImpl::Fallback`
   --> tests/ui/native_fail/incomplete_manual_fallback.rs:6:5
    |
  6 | /     catalog! {
- 7 | |         fallback;
+ 7 | |         default;
  8 | |         About = "Evaluator";
  9 | |     }
    | |_____^ required by this bound in `CatalogImpl::Fallback`

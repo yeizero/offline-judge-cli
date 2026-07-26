@@ -1,0 +1,5 @@
+error: locale message `Count` omits default schema fields total; add `..` to acknowledge them
+  --> tests/ui/native_fail/catalog_locale_missing_rest.rs:17:9
+   |
+17 |         Count { count: usize } = "{count}";
+   |         ^^^^^

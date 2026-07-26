@@ -115,7 +115,7 @@ mod tests {
             r#""{{{value:>8}}} {value}""#,
             &quote! {
                 ::core::fmt::Write::write_fmt(
-                    __i18n_formatter,
+                    formatter,
                     ::core::format_args!("{{{value:>8}}} {value}")
                 )
             },
@@ -131,7 +131,7 @@ mod tests {
                 {
                     let label = "x";
                     ::core::fmt::Write::write_fmt(
-                        __i18n_formatter,
+                        formatter,
                         ::core::format_args!("{label} {label}")
                     )
                 }
@@ -147,12 +147,12 @@ mod tests {
             &quote! {
                 if disabled {
                     ::core::fmt::Write::write_fmt(
-                        __i18n_formatter,
+                        formatter,
                         ::core::format_args!("Disabled")
                     )
                 } else {
                     ::core::fmt::Write::write_fmt(
-                        __i18n_formatter,
+                        formatter,
                         ::core::format_args!("{percent} / 100")
                     )
                 }
@@ -168,11 +168,11 @@ mod tests {
             &quote! {
                 match count {
                     0 => ::core::fmt::Write::write_fmt(
-                        __i18n_formatter,
+                        formatter,
                         ::core::format_args!("none")
                     ),
                     n => ::core::fmt::Write::write_fmt(
-                        __i18n_formatter,
+                        formatter,
                         ::core::format_args!("{n} items")
                     ),
                 }
@@ -188,7 +188,7 @@ mod tests {
 
     fn assert_lowered(source: &str, expected: &TokenStream) {
         let expression = parse_str::<Expr>(source).expect("test expression should parse");
-        let formatter = Ident::new("__i18n_formatter", proc_macro2::Span::mixed_site());
+        let formatter = Ident::new("formatter", proc_macro2::Span::mixed_site());
         let actual =
             lower_expression(&expression, &formatter).expect("supported expression should lower");
 

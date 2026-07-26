@@ -1,7 +1,7 @@
 use i18n_macro::catalog;
 
 catalog! {
-    fallback;
+    default;
 
     About = "Evaluator";
     Catalog = "catalog";
@@ -10,6 +10,7 @@ catalog! {
     FooBar = "upper";
     Foobar = "lower";
     ExplicitEmpty = "fallback empty";
+    Heartbeat {} = "alive";
     MissingDynamicInZh { count: usize } = "{count} fallback";
     Text { value } = "{value}";
     FormatterArgument { __i18n_formatter } = "{__i18n_formatter}";
@@ -19,6 +20,10 @@ catalog! {
     };
     InternalMessage { __i18n_message, value } = "{__i18n_message}/{value}";
     InternalCopy { __i18n_copy, value: usize } = "{__i18n_copy}/{value}";
+    CopyValue { copy_value: usize, value: usize } = {
+        let copy_value = copy_value + value;
+        "{copy_value}"
+    };
     CatalogImpl { value } = "catalog impl {value}";
     Progress { disabled: bool, percent } =
         if disabled {

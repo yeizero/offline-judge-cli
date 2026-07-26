@@ -5,4 +5,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
-i18n-macro = { path = "../../../.." }
+i18n_macro_renamed = { package = "i18n-macro", path = "../../../.." }

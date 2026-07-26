@@ -4,7 +4,7 @@ mod en_us {
     use super::catalog;
 
     catalog! {
-        fallback;
+        default;
         About = "Evaluator";
     }
 }

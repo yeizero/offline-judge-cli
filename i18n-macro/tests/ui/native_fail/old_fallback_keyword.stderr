@@ -1,0 +1,5 @@
+error: expected `default` or `schema` catalog header
+ --> tests/ui/native_fail/old_fallback_keyword.rs:4:5
+  |
+4 |     fallback;
+  |     ^^^^^^^^
