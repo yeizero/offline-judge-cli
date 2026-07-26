@@ -1,4 +1,5 @@
 pub mod en_us;
+pub mod zh_cn;
 pub mod zh_tw;
 
 use crate::Locale;
@@ -32,7 +33,24 @@ fn parse_config_locale(contents: &str) -> Option<String> {
 
 fn resolve_system_locale(locale: Option<&str>) -> Option<Locale> {
     let locale = normalize_locale(locale?);
-    (locale == "zh" || locale.starts_with("zh-")).then_some(Locale::ZhTw)
+    let locale = locale.split(['.', '@']).next()?;
+    let mut parts = locale.split('-');
+    match parts.next()? {
+        "en" => Some(Locale::EnUs),
+        "zh" => {
+            let subtags: Vec<_> = parts.collect();
+            if subtags.contains(&"hans") {
+                Some(Locale::ZhCn)
+            } else if subtags.contains(&"hant") {
+                Some(Locale::ZhTw)
+            } else if subtags.iter().any(|part| matches!(*part, "cn" | "sg")) {
+                Some(Locale::ZhCn)
+            } else {
+                Some(Locale::ZhTw)
+            }
+        }
+        _ => None,
+    }
 }
 
 fn resolve_locale(
@@ -43,9 +61,15 @@ fn resolve_locale(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        if normalize_locale(config_locale) == "zh-tw" {
+        let locale = match normalize_locale(config_locale).as_str() {
+            "zh-tw" => Some(Locale::ZhTw),
+            "en-us" => Some(Locale::EnUs),
+            "zh-cn" => Some(Locale::ZhCn),
+            _ => None,
+        };
+        if let Some(locale) = locale {
             return LocaleResolution {
-                locale: Locale::ZhTw,
+                locale,
                 unsupported_config_locale: None,
             };
         }
@@ -82,12 +106,11 @@ fn read_config_locale() -> Option<String> {
 pub fn current_locale() -> Locale {
     *CURRENT_LOCALE.get_or_init(|| {
         let configured = read_config_locale();
-        initialize_locale(configured.as_deref(), sys_locale::get_locale, |locale| {
-            log::warn!(
-                "{}",
-                tr_for!(Locale::ZhTw, UnsupportedConfiguredLocale { locale })
-            );
-        })
+        let locale = initialize_locale(configured.as_deref(), sys_locale::get_locale, |locale| {
+            log::warn!("Locale '{locale}' is unsupported.");
+        });
+        log::debug!("Use locate: {locale:?}");
+        locale
     })
 }
 
@@ -98,14 +121,21 @@ mod tests {
 
     #[test]
     fn supported_config_wins_without_querying_system() {
-        for configured in ["zh-TW", "ZH-tw", "zh_TW", "  zh-TW  "] {
+        for (configured, expected) in [
+            ("zh-TW", Locale::ZhTw),
+            ("ZH_tw", Locale::ZhTw),
+            ("en-US", Locale::EnUs),
+            ("EN_us", Locale::EnUs),
+            ("zh-CN", Locale::ZhCn),
+            ("ZH_cn", Locale::ZhCn),
+        ] {
             let queries = Cell::new(0);
             let resolution = resolve_locale(Some(configured), || {
                 queries.set(queries.get() + 1);
-                Some("en-US".to_owned())
+                Some("ja-JP".to_owned())
             });
 
-            assert_eq!(resolution.locale, Locale::ZhTw);
+            assert_eq!(resolution.locale, expected);
             assert_eq!(resolution.unsupported_config_locale, None);
             assert_eq!(queries.get(), 0);
         }
@@ -117,10 +147,10 @@ mod tests {
             let queries = Cell::new(0);
             let resolution = resolve_locale(configured, || {
                 queries.set(queries.get() + 1);
-                Some("zh-Hant-TW".to_owned())
+                Some("en-US".to_owned())
             });
 
-            assert_eq!(resolution.locale, Locale::ZhTw);
+            assert_eq!(resolution.locale, Locale::EnUs);
             assert_eq!(resolution.unsupported_config_locale, None);
             assert_eq!(queries.get(), 1);
         }
@@ -129,7 +159,7 @@ mod tests {
     #[test]
     fn unsupported_config_is_recorded_without_querying_system() {
         let queries = Cell::new(0);
-        let resolution = resolve_locale(Some(" en-US "), || {
+        let resolution = resolve_locale(Some(" fr-FR "), || {
             queries.set(queries.get() + 1);
             Some("zh-TW".to_owned())
         });
@@ -137,7 +167,7 @@ mod tests {
         assert_eq!(resolution.locale, Locale::ZhTw);
         assert_eq!(
             resolution.unsupported_config_locale.as_deref(),
-            Some("en-US")
+            Some("fr-FR")
         );
         assert_eq!(queries.get(), 0);
     }
@@ -160,15 +190,25 @@ mod tests {
     }
 
     #[test]
-    fn chinese_system_variants_are_recognized() {
-        for locale in ["zh", "zh-TW", "zh_Hant_TW", "ZH-CN"] {
-            assert_eq!(resolve_system_locale(Some(locale)), Some(Locale::ZhTw));
+    fn supported_system_locale_variants_are_recognized() {
+        for (locale, expected) in [
+            ("zh", Locale::ZhTw),
+            ("zh-TW", Locale::ZhTw),
+            ("zh_Hant_HK", Locale::ZhTw),
+            ("zh-MO", Locale::ZhTw),
+            ("zh-CN", Locale::ZhCn),
+            ("zh_Hans_SG", Locale::ZhCn),
+            ("en", Locale::EnUs),
+            ("en-US", Locale::EnUs),
+            ("en_GB", Locale::EnUs),
+        ] {
+            assert_eq!(resolve_system_locale(Some(locale)), Some(expected));
         }
     }
 
     #[test]
     fn other_or_missing_system_locales_are_unrecognized() {
-        for locale in [None, Some(""), Some("en-US"), Some("ja-JP")] {
+        for locale in [None, Some(""), Some("ja-JP"), Some("zhfoo")] {
             assert_eq!(resolve_system_locale(locale), None);
         }
     }
@@ -180,7 +220,7 @@ mod tests {
         let mut warned_locale = None;
 
         let locale = initialize_locale(
-            Some("en-US"),
+            Some("fr-FR"),
             || {
                 system_queries.set(system_queries.get() + 1);
                 Some("zh-TW".to_owned())
@@ -194,6 +234,6 @@ mod tests {
         assert_eq!(locale, Locale::ZhTw);
         assert_eq!(system_queries.get(), 0);
         assert_eq!(warnings.get(), 1);
-        assert_eq!(warned_locale.as_deref(), Some("en-US"));
+        assert_eq!(warned_locale.as_deref(), Some("fr-FR"));
     }
 }

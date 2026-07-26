@@ -1,10 +1,9 @@
 use i18n_macro::catalog;
 
 catalog! {
-    fallback;
+    schema: super::en_us;
 
-    UnsupportedConfiguredLocale { locale } =
-        "不支援 config.yaml 中設定的語言 {locale}；將使用 zh-TW";
+    // oj-evaluator
     RunningWithoutJudge = "正在運行程式";
     ReuseCompilation = "重複使用編譯檔案";
     CompilingProgress { secs: f64 } = "正在編譯檔案 / {secs:.2}s";
@@ -44,4 +43,6 @@ catalog! {
     VerdictTLE = "超時錯誤 TLE";
     VerdictMLE = "記憶體超限 MLE";
     VerdictAC = "答案正確 AC";
+
+    // oj-generator
 }

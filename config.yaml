@@ -1,3 +1,5 @@
+# [options] en-us / zh-tw / zh-cn
+# locale: en-us
 evaluator:
   # 說明:
   # compile/run: 代表編譯或執行的階段。

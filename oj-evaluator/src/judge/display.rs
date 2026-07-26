@@ -456,12 +456,13 @@ mod tests {
         let wrong_answer = wrong_answer(output, "0\n");
 
         let rendered = format_wrong_answer(&wrong_answer);
+        let below_omission = shared::tr!(DiffBelowOmitted);
 
         assert!(wrong_answer.output.starts_with("0\n1\n2\n"));
         assert!(wrong_answer.output.ends_with("99999\n"));
         assert_eq!(wrong_answer.answer, "0\n");
-        assert!(rendered.output.contains("... (以下省略)"));
-        assert!(!rendered.answer.contains("... (以下省略)"));
+        assert!(rendered.output.contains(below_omission));
+        assert!(!rendered.answer.contains(below_omission));
     }
 
     #[test]
@@ -472,9 +473,10 @@ mod tests {
         let wrong_answer = wrong_answer(output, &answer);
 
         let rendered = format_wrong_answer(&wrong_answer);
+        let above_omission = shared::tr!(DiffAboveOmitted);
 
-        assert!(rendered.output.contains("... (以上省略)"));
-        assert!(rendered.answer.contains("... (以上省略)"));
+        assert!(rendered.output.contains(above_omission));
+        assert!(rendered.answer.contains(above_omission));
         assert!(rendered.output.contains("wrong"));
         assert!(rendered.answer.contains("right"));
     }
@@ -486,9 +488,10 @@ mod tests {
         let wrong_answer = wrong_answer(output, &answer);
 
         let rendered = format_wrong_answer(&wrong_answer);
+        let below_omission = shared::tr!(DiffBelowOmitted);
 
-        assert!(rendered.output.contains("... (以下省略)"));
-        assert!(!rendered.answer.contains("... (以下省略)"));
+        assert!(rendered.output.contains(below_omission));
+        assert!(!rendered.answer.contains(below_omission));
     }
 
     #[test]
